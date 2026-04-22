@@ -10,7 +10,6 @@ from foundry.models import Stage, Task, TaskStatus
 
 def _settings(tmp_path: Path) -> Settings:
     return Settings(
-        github_token="test",
         source_repo="owner/sandbox",
         target_repo="owner/sandbox",
         issue_label="agent-task",
@@ -55,6 +54,25 @@ def test_run_once_happy_path(tmp_path: Path) -> None:
     assert final.status == TaskStatus.DONE
     assert final.current_stage == Stage.DONE
     assert final.pr_url == "https://example/pr/1"
+
+
+def test_run_once_pre_implement_failure_requeues(tmp_path: Path) -> None:
+    """Network/infra flakes before implement should re-queue, not terminally fail."""
+    settings = _settings(tmp_path)
+    state.init_db(settings.db_path)
+    seeded = _seed_task(settings.db_path)
+
+    with patch("foundry.pipeline.fetch_stage.fetch", return_value=[seeded]), \
+         patch(
+             "foundry.pipeline.worktree.ensure_base_repo",
+             side_effect=RuntimeError("TLS handshake timeout"),
+         ):
+        processed = pipeline.run_once(settings)
+
+    final = state.get_task(settings.db_path, processed[0].id)
+    assert final.status == TaskStatus.PENDING
+    assert final.current_stage == Stage.FETCH
+    assert final.attempts == 1
 
 
 def test_run_once_stage_failure_marks_failed(tmp_path: Path) -> None:

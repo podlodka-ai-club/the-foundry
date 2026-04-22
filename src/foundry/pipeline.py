@@ -16,6 +16,11 @@ from .stages import verify as verify_stage
 
 log = structlog.get_logger()
 
+# Stages before the first side-effecting step. Failures here are almost always
+# infrastructure hiccups (network, auth, worktree setup) — re-queue instead of
+# marking the task terminally failed.
+PRE_IMPLEMENT_STAGES = {Stage.FETCH, Stage.CONTEXT, Stage.PLAN}
+
 
 def _mark(settings: Settings, task: Task, *, stage: Stage, status: TaskStatus | None = None) -> Task:
     task.current_stage = stage
@@ -90,16 +95,32 @@ def run_once(settings: Settings) -> list[Task]:
         try:
             processed.append(_process_task(settings, task))
         except Exception as e:
-            log.error("task.failed", task_id=task.id, error=str(e))
+            failed_stage = task.current_stage
             tb = traceback.format_exc()
             state.append_log(
                 settings.db_path,
                 task.id,
-                task.current_stage,
+                failed_stage,
                 {"error": str(e), "traceback": tb},
             )
-            task.status = TaskStatus.FAILED
-            task.current_stage = Stage.FAILED
+            if failed_stage in PRE_IMPLEMENT_STAGES:
+                task.status = TaskStatus.PENDING
+                task.current_stage = Stage.FETCH
+                log.warning(
+                    "task.requeued",
+                    task_id=task.id,
+                    stage=failed_stage.value,
+                    error=str(e),
+                )
+            else:
+                task.status = TaskStatus.FAILED
+                task.current_stage = Stage.FAILED
+                log.error(
+                    "task.failed",
+                    task_id=task.id,
+                    stage=failed_stage.value,
+                    error=str(e),
+                )
             state.upsert_task(settings.db_path, task)
             processed.append(task)
     return processed

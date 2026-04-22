@@ -39,4 +39,14 @@ def run(task: Task, worktree_path: Path, branch_name: str, settings: Settings) -
         cwd=worktree_path,
     )
     pr_url = pr_result.stdout.strip().splitlines()[-1]
+
+    shell.run(
+        [
+            "gh", "issue", "close", str(task.issue_number),
+            "--repo", task.repo,
+            "--comment", f"Closed automatically by The Foundry after opening {pr_url}.",
+        ],
+        cwd=worktree_path,
+    )
+
     return {"pr_url": pr_url, "branch": branch_name}

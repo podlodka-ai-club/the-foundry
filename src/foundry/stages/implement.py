@@ -22,9 +22,15 @@ def run(task: Task, plan: dict, worktree_path: Path, settings: Settings) -> dict
         target = worktree_path / step["file"]
         if action == "append_line":
             line = step["line"].rstrip("\n") + "\n"
+            needs_leading_newline = False
+            if target.exists() and target.stat().st_size > 0:
+                with target.open("rb") as r:
+                    r.seek(-1, 2)
+                    needs_leading_newline = r.read(1) != b"\n"
+            payload = ("\n" if needs_leading_newline else "") + line
             with target.open("a", encoding="utf-8") as f:
-                f.write(line)
-            applied.append({"file": step["file"], "action": action, "bytes": len(line)})
+                f.write(payload)
+            applied.append({"file": step["file"], "action": action, "bytes": len(payload)})
         else:
             raise UnsupportedAction(f"action not supported in skeleton: {action!r}")
     return {"applied": applied}
