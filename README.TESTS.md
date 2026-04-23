@@ -1,6 +1,7 @@
 - [О проекте](README.md)
 - [Кодинг агент](README.AGENT.md)
-- [Тесты](#)
+- [Unit Тесты](#)
+- [Интеграционные тесты](README.INTTESTS.md)
 
 # Документация по тестам
 
@@ -14,19 +15,38 @@
 tests/
 ├── __init__.py              # Инициализация пакета тестов
 ├── conftest.py              # Конфигурация pytest (добавление project root в sys.path)
-├── test_providers.py        # Тесты провайдеров LLM
-└── test_core.py             # Тесты core модулей
+├── test_providers.py        # Unit тесты провайдеров LLM (с моками)
+├── test_core.py             # Unit тесты core модулей (TaskManager, LogManager)
+└── test_integration.py      # Интеграционные E2E тесты (реальные вызовы LLM)
 ```
+
+**Типы тестов:**
+- **Unit тесты** (`test_providers.py`, `test_core.py`) - быстрые, используют моки, не требуют API ключей
+- **Интеграционные тесты** (`test_integration.py`) - медленные, реальные вызовы к LLM API, требуют настроенный `.env`
 
 ---
 
 ## Запуск тестов
 
-**Все тесты:**
+**Все тесты (unit + integration):**
 ```bash
 make test
 # или
 pytest tests/ -v
+```
+
+**Только unit тесты (быстрые, без LLM API):**
+```bash
+make test-unit
+# или
+pytest tests/ -v -m "not integration"
+```
+
+**Только интеграционные тесты (медленные, требуют LLM API):**
+```bash
+make test-int
+# или
+pytest tests/ -v -m integration
 ```
 
 **Конкретный файл тестов:**

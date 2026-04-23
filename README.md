@@ -1,6 +1,7 @@
 - [О проекте](#)
 - [Кодинг агент](README.AGENT.md)
-- [Тесты](README.TESTS.md)
+- [Unit Тесты](README.TESTS.md)
+- [Интеграционные тесты](README.INTTESTS.md)
 
 ---------------
 
