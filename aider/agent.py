@@ -195,6 +195,12 @@ def run_aider(task_text: str, task_id: str, llm_settings: dict) -> dict:
         env['OPENAI_API_KEY'] = llm_settings['api_key']
         aider_cmd.extend(['--model', llm_settings['model']])
     
+    # Добавляем все существующие .py файлы в контекст aider
+    existing_files = list(code_dir.glob('*.py'))
+    if existing_files:
+        for file in existing_files:
+            aider_cmd.append(str(file.name))
+    
     aider_cmd.extend(['--message', task_text])
     
     try:
@@ -224,6 +230,70 @@ def run_aider(task_text: str, task_id: str, llm_settings: dict) -> dict:
             'output': f'Ошибка при запуске aider: {str(e)}',
             'returncode': -1
         }
+
+
+def fix_malformed_filenames(code_dir: Path) -> list:
+    """
+    Исправление неправильных имен файлов, созданных LLM.
+    
+    DeepSeek иногда выводит промежуточные рассуждения перед именем файла,
+    например: "Let's produce the SEARCH/REPLACE block.current_dt.py"
+    Эта функция находит такие файлы и переименовывает их.
+    
+    Args:
+        code_dir: Путь к рабочей директории
+        
+    Returns:
+        Список кортежей (старое_имя, новое_имя) переименованных файлов
+    """
+    renamed_files = []
+    
+    # Паттерны для поиска неправильных имен
+    bad_patterns = [
+        "Let's produce the SEARCH",
+        "Let's craft the block",
+        "SEARCH/REPLACE block",
+        "REPLACE block",
+        "produce the SEARCH"
+    ]
+    
+    def extract_correct_name(name: str) -> str:
+        """Извлекает правильное имя файла из неправильного."""
+        parts = name.split('.')
+        if len(parts) >= 2:
+            # Берем последние две части (имя.расширение)
+            return '.'.join(parts[-2:])
+        return name
+    
+    # Ищем файлы и папки с неправильными именами
+    for item in code_dir.iterdir():
+        item_name = item.name
+        
+        # Проверяем, содержит ли имя плохие паттерны
+        for pattern in bad_patterns:
+            if pattern in item_name:
+                try:
+                    if item.is_dir():
+                        # Если это директория, перемещаем файлы из нее
+                        for file in item.iterdir():
+                            # Извлекаем правильное имя для файла внутри директории
+                            correct_file_name = extract_correct_name(file.name)
+                            new_file_path = code_dir / correct_file_name
+                            file.rename(new_file_path)
+                            renamed_files.append((f"{item_name}/{file.name}", correct_file_name))
+                        # Удаляем пустую директорию
+                        item.rmdir()
+                    else:
+                        # Переименовываем файл
+                        correct_name = extract_correct_name(item_name)
+                        new_path = code_dir / correct_name
+                        item.rename(new_path)
+                        renamed_files.append((item_name, correct_name))
+                except Exception as e:
+                    print(f"Ошибка при переименовании {item_name}: {e}")
+                break
+    
+    return renamed_files
 
 
 def save_log(task_id: str, task_text: str, aider_result: dict):
@@ -325,6 +395,17 @@ def main():
         task_text, task_file = load_or_create_task(task_id, prompt)
         
         aider_result = run_aider(task_text, task_id, llm_settings)
+        
+        # Исправляем неправильные имена файлов, созданных LLM
+        code_dir = Path(__file__).parent.parent / os.getenv('SOURCES_DIR', 'code')
+        renamed_files = fix_malformed_filenames(code_dir)
+        
+        # Добавляем информацию о переименованных файлах в результат
+        if renamed_files:
+            rename_info = "\n\n--- Пост-обработка ---\nПереименованные файлы:\n"
+            for old_name, new_name in renamed_files:
+                rename_info += f"  {old_name} -> {new_name}\n"
+            aider_result['output'] += rename_info
         
         log_file = save_log(task_id, task_text, aider_result)
         
