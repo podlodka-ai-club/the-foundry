@@ -3,8 +3,7 @@ import subprocess
 from pathlib import Path
 from typing import Dict, List
 
-from aider.providers.base import BaseLLMProvider
-
+from agent.providers.base import BaseLLMProvider
 
 class AiderRunner:
     """
@@ -48,15 +47,31 @@ class AiderRunner:
         """
         env = os.environ.copy()
         
+        # Базовая команда с флагами:
+        # --yes-always: автоматически подтверждать все действия
+        # --no-git: отключить git (мы управляем git вручную)
         base_cmd = ['aider', '--yes-always', '--no-git']
         
+        # Провайдер добавляет свои параметры (--model, API ключи через env)
         aider_cmd, env = provider.configure_aider_command(base_cmd, env)
         
+        # Добавляем все существующие файлы для редактирования
+        # Используем --file для явного указания файлов, которые aider может редактировать
         existing_files = self._get_existing_files()
-        if existing_files:
-            aider_cmd.extend(existing_files)
+        for file in existing_files:
+            aider_cmd.extend(['--file', file])
         
         aider_cmd.extend(['--message', task_text])
+        
+        # Отладочная информация: логируем команду
+        debug_info = "=== DEBUG: Команда aider ===\n"
+        debug_info += f"CWD: {self.code_dir}\n"
+        debug_info += f"CMD: {' '.join(aider_cmd)}\n"
+        debug_info += f"Files: {existing_files}\n"
+        debug_info += "=" * 50 + "\n\n"
+        
+        # Выводим в консоль для отладки
+        print(debug_info)
         
         try:
             result = subprocess.run(
@@ -70,7 +85,7 @@ class AiderRunner:
             
             return {
                 'success': result.returncode == 0,
-                'output': result.stdout + result.stderr,
+                'output': debug_info + result.stdout + result.stderr,
                 'returncode': result.returncode
             }
         except subprocess.TimeoutExpired:
@@ -90,8 +105,13 @@ class AiderRunner:
         """
         Получение списка существующих файлов для контекста aider.
         
+        Возвращает все файлы в директории code (любые расширения),
+        исключая служебные файлы aider (.aider.*).
+        
         Returns:
-            Список имен файлов .py в директории code
+            Список имен файлов в директории code
         """
-        existing_files = list(self.code_dir.glob('*.py'))
+        all_files = [f for f in self.code_dir.iterdir() if f.is_file()]
+        # Исключаем служебные файлы aider
+        existing_files = [f for f in all_files if not f.name.startswith('.aider')]
         return [str(file.name) for file in existing_files]

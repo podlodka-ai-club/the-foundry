@@ -18,8 +18,8 @@ import sys
 from pathlib import Path
 from dotenv import load_dotenv
 
-from aider.providers import LLMProviderFactory
-from aider.core import TaskManager, LogManager, AiderRunner
+from agent.providers import LLMProviderFactory
+from agent.core import TaskManager, LogManager, AiderRunner
 
 
 
@@ -68,6 +68,11 @@ def main():
         
         runner = AiderRunner()
         aider_result = runner.run(task_text, provider)
+        
+        # Отладка: выводим первые 500 символов результата
+        print(f"\n=== DEBUG OUTPUT (first 500 chars) ===")
+        print(aider_result['output'][:500])
+        print("=" * 50)
         
         code_dir = Path(__file__).parent.parent / 'code'
         renamed_files = provider.post_process_files(code_dir)

@@ -4,7 +4,7 @@ services:
     container_name: foundry-agent
     volumes:
       - ./code:/app/code
-      - ./aider/tasks:/app/aider/tasks
+      - ./agent/tasks:/app/agent/tasks
       - ./.env:/app/.env:ro
     environment:
       - PYTHONUNBUFFERED=1

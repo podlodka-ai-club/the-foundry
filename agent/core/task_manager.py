@@ -22,7 +22,7 @@ class TaskManager:
         Args:
             tasks_dir: Директория с задачами (по умолчанию из AGENT_TASKS_DIR)
         """
-        self.tasks_dir = tasks_dir or os.getenv('AGENT_TASKS_DIR', 'aider/tasks')
+        self.tasks_dir = tasks_dir or os.getenv('AGENT_TASKS_DIR', 'agent/tasks')
         self.project_root = Path(__file__).parent.parent.parent
     
     def validate_task_id(self, task_id: str) -> bool:

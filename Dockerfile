@@ -7,13 +7,16 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml ./
-COPY aider/ ./aider/
+COPY agent/ ./agent/
 
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir aider-chat python-dotenv
 
-RUN mkdir -p /app/code /app/aider/tasks
+RUN mkdir -p /app/code /app/agent/tasks
 
 WORKDIR /app
 
-CMD ["python", "aider/agent.py"]
+# Добавляем /app в PYTHONPATH чтобы Python мог найти модуль agent
+ENV PYTHONPATH=/app
+
+CMD ["python", "-m", "agent.agent"]

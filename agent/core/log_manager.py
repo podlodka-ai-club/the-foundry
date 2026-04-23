@@ -47,6 +47,9 @@ class LogManager:
         
         output = aider_output
         
+        # Если в выводе есть DEBUG информация, она уже включена в aider_output
+        # Дополнительная обработка не требуется
+        
         if renamed_files:
             rename_info = "\n\n--- Пост-обработка ---\nПереименованные файлы:\n"
             for old_name, new_name in renamed_files:

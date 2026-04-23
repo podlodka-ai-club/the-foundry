@@ -16,10 +16,11 @@ code/.aider.input.history
 
 # Agent temp files (tasks + test code)
 code
-aider/tasks
+agent/tasks
 
-# required agent files (tasks samples + config)
-!aider/tasks/TF-1/TF-1_task.md
-!aider/tasks/TF-2/TF-2_task.md
-!aider/tasks/TF-3/TF-3_task.md
+# required agent files (tasks samples + configs)
 !code/.aider.model.metadata.json
+!agent/tasks/TF-1/TF-1_task.md
+!agent/tasks/TF-2/TF-2_task.md
+!agent/tasks/TF-3/TF-3_task.md
+!agent/tasks/TF-2/TF-2_log.md
