@@ -1,0 +1,6 @@
+[project]
+name = "the-foundry"
+version = "0.1.0"
+description = "theFoundary: Automatic coding tool based on task-tracker issues"
+requires-python = ">=3.14"
+dependencies = []
