@@ -18,6 +18,7 @@ code/.aider.input.history
 # Agent temp files (tasks + test code)
 code
 agent/tasks
+!code/hello.py
 
 # required agent files (tasks samples + configs)
 !code/.aider.model.metadata.json

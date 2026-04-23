@@ -78,7 +78,7 @@ class TestLLMIntegration:
         
         # Запускаем скрипт и проверяем вывод
         script_result = subprocess.run(
-            ['python', str(current_dt_file)],
+            ['python3', str(current_dt_file)],
             capture_output=True,
             text=True,
             timeout=5
@@ -139,7 +139,7 @@ class TestLLMIntegration:
         
         # Запускаем скрипт с вводом имени
         script_result = subprocess.run(
-            ['python', str(hello_file)],
+            ['python3', str(hello_file)],
             input='Test\n',  # Вводим имя "Test"
             capture_output=True,
             text=True,
