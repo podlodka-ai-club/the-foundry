@@ -1,0 +1,15 @@
+.venv/
+.idea/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.git/
+.gitignore
+*.log
+.env
+setup.log
+docs/
+specs/
+README.md
+README.AGENT.md

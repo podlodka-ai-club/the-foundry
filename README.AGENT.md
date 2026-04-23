@@ -62,6 +62,70 @@ DEEPSEEK_BASE_URL=https://api.deepseek.com
 
 Поддерживаемые LLM: DEEPSEEK, ANTHROPIC, CHATGPT
 
+## Запуск через Docker
+
+Docker позволяет запускать агента без установки зависимостей локально. Все работает в изолированном контейнере.
+
+### Предварительные требования
+
+- Установленный Docker и Docker Compose
+- Файл `.env` с настройками API ключей
+
+### Сборка образа
+
+```bash
+docker-compose build
+```
+
+или через Makefile:
+
+```bash
+make build
+```
+
+### Запуск агента
+
+**Создание новой задачи:**
+```bash
+docker-compose run --rm foundry-agent --task="TF-2" --prompt="Напиши скрипт hello world"
+```
+
+**Выполнение существующей задачи:**
+```bash
+docker-compose run --rm foundry-agent --task="TF-1"
+```
+
+**Через Makefile:**
+```bash
+make runagent task=TF-2 prompt="Напиши скрипт hello world"
+make runagent task=TF-1
+```
+
+### Дополнительные команды
+
+**Открыть shell в контейнере:**
+```bash
+make shell
+```
+
+**Очистить Docker ресурсы:**
+```bash
+make clean
+```
+
+**Показать справку:**
+```bash
+make help
+```
+
+### Volumes (монтируемые директории)
+
+- `./code` → `/app/code` - рабочая директория для изменений
+- `./aider/tasks` → `/app/aider/tasks` - задачи и логи
+- `./.env` → `/app/.env` (read-only) - конфигурация
+
+Все изменения, сделанные агентом в `code/` и логи в `aider/tasks/`, сохраняются на хост-машине.
+
 ## Docs
 Документы, логи встреч и прочие текстовые артефакты храним в папке `/docs`.
 

@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  foundry-agent:
+    build: .
+    container_name: foundry-agent
+    volumes:
+      - ./code:/app/code
+      - ./aider/tasks:/app/aider/tasks
+      - ./.env:/app/.env:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+    stdin_open: true
+    tty: true

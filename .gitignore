@@ -4,3 +4,6 @@
 
 # configs
 .env
+
+# LOGS
+./*.log
