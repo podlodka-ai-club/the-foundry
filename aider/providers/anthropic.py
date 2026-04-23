@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -11,11 +12,14 @@ class AnthropicProvider(BaseLLMProvider):
     Особенности:
     - Использует переменную окружения ANTHROPIC_API_KEY
     - Не требует пост-обработки файлов (пока)
+    - Имя модели читается из ANTHROPIC_MODEL_NAME или используется дефолтное
     """
     
+    DEFAULT_MODEL = 'claude-3-5-sonnet-20241022'
+    
     def get_model_name(self) -> str:
-        """Получение названия модели Claude."""
-        return 'claude-3-5-sonnet-20241022'
+        """Получение названия модели Claude из конфига или дефолтное."""
+        return os.getenv('ANTHROPIC_MODEL_NAME', self.DEFAULT_MODEL)
     
     def configure_aider_command(self, base_cmd: List[str], env: Dict[str, str]) -> Tuple[List[str], Dict[str, str]]:
         """

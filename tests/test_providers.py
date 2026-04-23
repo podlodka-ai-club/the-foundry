@@ -1,6 +1,8 @@
+import os
 import pytest
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 from aider.providers import (
     DeepSeekProvider,
@@ -13,10 +15,17 @@ from aider.providers import (
 class TestDeepSeekProvider:
     """Тесты для DeepSeekProvider."""
     
-    def test_get_model_name(self):
-        """Тест получения названия модели."""
-        provider = DeepSeekProvider(api_key="test_key")
-        assert provider.get_model_name() == 'deepseek/deepseek-chat'
+    def test_get_model_name_default(self):
+        """Тест получения дефолтного названия модели."""
+        with patch.dict(os.environ, {}, clear=True):
+            provider = DeepSeekProvider(api_key="test_key")
+            assert provider.get_model_name() == 'deepseek/deepseek-chat'
+    
+    def test_get_model_name_from_env(self):
+        """Тест получения названия модели из конфига."""
+        with patch.dict(os.environ, {'DEEPSEEK_MODEL_NAME': 'deepseek/custom-model'}):
+            provider = DeepSeekProvider(api_key="test_key")
+            assert provider.get_model_name() == 'deepseek/custom-model'
     
     def test_configure_aider_command(self):
         """Тест настройки команды aider."""
@@ -28,8 +37,7 @@ class TestDeepSeekProvider:
         
         assert '--model' in cmd
         assert 'deepseek/deepseek-chat' in cmd
-        assert '--api-key' in cmd
-        assert 'deepseek=test_key' in cmd
+        assert new_env['DEEPSEEK_API_KEY'] == 'test_key'
     
     def test_post_process_files_malformed_filename(self):
         """Тест пост-обработки файлов с неправильными именами."""
@@ -86,10 +94,17 @@ class TestDeepSeekProvider:
 class TestAnthropicProvider:
     """Тесты для AnthropicProvider."""
     
-    def test_get_model_name(self):
-        """Тест получения названия модели."""
-        provider = AnthropicProvider(api_key="test_key")
-        assert provider.get_model_name() == 'claude-3-5-sonnet-20241022'
+    def test_get_model_name_default(self):
+        """Тест получения дефолтного названия модели."""
+        with patch.dict(os.environ, {}, clear=True):
+            provider = AnthropicProvider(api_key="test_key")
+            assert provider.get_model_name() == 'claude-3-5-sonnet-20241022'
+    
+    def test_get_model_name_from_env(self):
+        """Тест получения названия модели из конфига."""
+        with patch.dict(os.environ, {'ANTHROPIC_MODEL_NAME': 'claude-custom'}):
+            provider = AnthropicProvider(api_key="test_key")
+            assert provider.get_model_name() == 'claude-custom'
     
     def test_configure_aider_command(self):
         """Тест настройки команды aider."""
@@ -116,10 +131,17 @@ class TestAnthropicProvider:
 class TestChatGPTProvider:
     """Тесты для ChatGPTProvider."""
     
-    def test_get_model_name(self):
-        """Тест получения названия модели."""
-        provider = ChatGPTProvider(api_key="test_key")
-        assert provider.get_model_name() == 'gpt-4'
+    def test_get_model_name_default(self):
+        """Тест получения дефолтного названия модели."""
+        with patch.dict(os.environ, {}, clear=True):
+            provider = ChatGPTProvider(api_key="test_key")
+            assert provider.get_model_name() == 'gpt-4'
+    
+    def test_get_model_name_from_env(self):
+        """Тест получения названия модели из конфига."""
+        with patch.dict(os.environ, {'CHATGPT_MODEL_NAME': 'gpt-4-turbo'}):
+            provider = ChatGPTProvider(api_key="test_key")
+            assert provider.get_model_name() == 'gpt-4-turbo'
     
     def test_configure_aider_command(self):
         """Тест настройки команды aider."""

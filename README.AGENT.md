@@ -1,5 +1,6 @@
 - [О проекте](README.md)
 - [Кодинг агент](#)
+- [Тесты](README.TESTS.md)
 
 # Кодинг агент 
 
@@ -124,6 +125,264 @@ make help
 - `./.env` → `/app/.env` (read-only) - конфигурация
 
 Все изменения, сделанные агентом в `code/` и логи в `aider/tasks/`, сохраняются на хост-машине.
+
+## Добавление новых LLM провайдеров
+
+Система спроектирована с использованием SOLID принципов, что позволяет легко добавлять новые LLM провайдеры.
+
+### Шаг 1: Создать класс провайдера
+
+Создайте файл `aider/providers/your_llm.py`:
+
+```python
+import os
+from pathlib import Path
+from typing import Dict, List, Tuple
+
+from .base import BaseLLMProvider
+
+
+class YourLLMProvider(BaseLLMProvider):
+    """
+    Провайдер для работы с YourLLM.
+    
+    Особенности:
+    - Описание особенностей вашей LLM
+    - Имя модели читается из YOUR_LLM_MODEL_NAME или используется дефолтное
+    """
+    
+    DEFAULT_MODEL = 'your-llm/model-name'
+    
+    def get_model_name(self) -> str:
+        """Получение названия модели из конфига или дефолтное."""
+        return os.getenv('YOUR_LLM_MODEL_NAME', self.DEFAULT_MODEL)
+    
+    def configure_aider_command(self, base_cmd: List[str], env: Dict[str, str]) -> Tuple[List[str], Dict[str, str]]:
+        """
+        Настройка команды aider для YourLLM.
+        
+        Args:
+            base_cmd: Базовая команда aider
+            env: Переменные окружения
+            
+        Returns:
+            Кортеж (команда с параметрами, переменные окружения с API ключом)
+        """
+        cmd = base_cmd.copy()
+        cmd.extend(['--model', self.get_model_name()])
+        
+        env_copy = env.copy()
+        env_copy['YOUR_LLM_API_KEY'] = self.api_key
+        
+        return cmd, env_copy
+    
+    def post_process_files(self, code_dir: Path) -> List[Tuple[str, str]]:
+        """
+        Пост-обработка файлов для YourLLM.
+        
+        Если ваша LLM создает файлы с неправильными именами,
+        реализуйте логику исправления здесь.
+        
+        Args:
+            code_dir: Директория с кодом
+            
+        Returns:
+            Список кортежей (старое_имя, новое_имя) переименованных файлов
+        """
+        # Если пост-обработка не требуется:
+        return []
+        
+        # Или реализуйте свою логику:
+        # renamed_files = []
+        # ... ваша логика ...
+        # return renamed_files
+```
+
+### Шаг 2: Зарегистрировать провайдер в фабрике
+
+Обновите `aider/providers/__init__.py`:
+
+```python
+from .base import BaseLLMProvider
+from .deepseek import DeepSeekProvider
+from .anthropic import AnthropicProvider
+from .chatgpt import ChatGPTProvider
+from .your_llm import YourLLMProvider  # Добавить импорт
+from .factory import LLMProviderFactory
+
+__all__ = [
+    'BaseLLMProvider',
+    'DeepSeekProvider',
+    'AnthropicProvider',
+    'ChatGPTProvider',
+    'YourLLMProvider',  # Добавить в экспорт
+    'LLMProviderFactory',
+]
+```
+
+Обновите `aider/providers/factory.py`:
+
+```python
+from .your_llm import YourLLMProvider  # Добавить импорт
+
+class LLMProviderFactory:
+    _providers: Dict[str, type] = {
+        'DEEPSEEK': DeepSeekProvider,
+        'ANTHROPIC': AnthropicProvider,
+        'CHATGPT': ChatGPTProvider,
+        'YOUR_LLM': YourLLMProvider,  # Добавить в словарь
+    }
+```
+
+### Шаг 3: Добавить настройки в .env
+
+Обновите `.env.sample`:
+
+```env
+# YourLLM
+YOUR_LLM_API_KEY=your-api-key-here
+YOUR_LLM_MODEL_NAME=your-llm/model-name
+```
+
+И добавьте в свой `.env` файл:
+
+```env
+CODING_LLM=YOUR_LLM
+YOUR_LLM_API_KEY=sk-your-actual-key
+YOUR_LLM_MODEL_NAME=your-llm/model-name
+```
+
+### Шаг 4: Написать тесты
+
+Создайте тесты в `tests/test_providers.py`:
+
+```python
+class TestYourLLMProvider:
+    """Тесты для YourLLMProvider."""
+    
+    def test_get_model_name_default(self):
+        """Тест получения дефолтного названия модели."""
+        with patch.dict(os.environ, {}, clear=True):
+            provider = YourLLMProvider(api_key="test_key")
+            assert provider.get_model_name() == 'your-llm/model-name'
+    
+    def test_get_model_name_from_env(self):
+        """Тест получения названия модели из конфига."""
+        with patch.dict(os.environ, {'YOUR_LLM_MODEL_NAME': 'custom-model'}):
+            provider = YourLLMProvider(api_key="test_key")
+            assert provider.get_model_name() == 'custom-model'
+    
+    def test_configure_aider_command(self):
+        """Тест настройки команды aider."""
+        provider = YourLLMProvider(api_key="test_key")
+        base_cmd = ['aider', '--yes-always']
+        env = {}
+        
+        cmd, new_env = provider.configure_aider_command(base_cmd, env)
+        
+        assert '--model' in cmd
+        assert 'your-llm/model-name' in cmd
+        assert new_env['YOUR_LLM_API_KEY'] == 'test_key'
+    
+    def test_post_process_files(self):
+        """Тест пост-обработки файлов."""
+        provider = YourLLMProvider(api_key="test_key")
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            code_dir = Path(tmpdir)
+            renamed = provider.post_process_files(code_dir)
+            assert len(renamed) == 0  # Или проверьте вашу логику
+```
+
+### Шаг 5: Запустить тесты
+
+```bash
+make test filter=test_providers.py
+```
+
+### Шаг 6: Использовать новый провайдер
+
+```bash
+# Установить в .env
+CODING_LLM=YOUR_LLM
+
+# Запустить задачу
+make runagent task=TF-1
+```
+
+### Альтернативный способ: Динамическая регистрация
+
+Если вы не хотите изменять код фабрики, можно зарегистрировать провайдер динамически:
+
+```python
+from aider.providers import LLMProviderFactory
+from your_module import YourLLMProvider
+
+# Регистрация нового провайдера
+LLMProviderFactory.register_provider('YOUR_LLM', YourLLMProvider)
+
+# Теперь можно использовать
+provider = LLMProviderFactory.create_provider('YOUR_LLM', 'your-api-key')
+```
+
+### Примеры реализации
+
+**Пример 1: Простой провайдер (как Anthropic/ChatGPT)**
+- Передача API ключа через переменную окружения
+- Без пост-обработки файлов
+- Дефолтная модель
+
+**Пример 2: Провайдер с пост-обработкой (как DeepSeek)**
+- Передача API ключа через переменную окружения
+- Пост-обработка файлов с неправильными именами
+- Кастомная логика извлечения правильных имен
+
+**Пример 3: Провайдер с особыми параметрами**
+- Дополнительные параметры командной строки
+- Специфичные переменные окружения
+- Кастомная логика настройки
+
+### Документация базового класса
+
+Все провайдеры должны наследовать `BaseLLMProvider` и реализовать три метода:
+
+```python
+class BaseLLMProvider(ABC):
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+    
+    @abstractmethod
+    def get_model_name(self) -> str:
+        """Получение названия модели."""
+        pass
+    
+    @abstractmethod
+    def configure_aider_command(
+        self, 
+        base_cmd: List[str], 
+        env: Dict[str, str]
+    ) -> Tuple[List[str], Dict[str, str]]:
+        """Настройка команды aider и переменных окружения."""
+        pass
+    
+    @abstractmethod
+    def post_process_files(self, code_dir: Path) -> List[Tuple[str, str]]:
+        """Пост-обработка созданных файлов."""
+        pass
+    
+    def get_provider_name(self) -> str:
+        """Получение названия провайдера."""
+        return self.__class__.__name__.replace('Provider', '')
+```
+
+### Полезные ссылки
+
+- [Документация aider](https://aider.chat/docs/)
+- [Поддерживаемые модели aider](https://aider.chat/docs/llms.html)
+- [Тесты провайдеров](README.TESTS.md)
+- [Архитектура системы](docs/tasks/AI-1/AI-1_f8.md)
+
+---
 
 ## Документация
 Логи работы над этой задачей интеграциии ИИ агента - см. в папке `/docs/tasks/AI-1`.

@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -11,11 +12,14 @@ class ChatGPTProvider(BaseLLMProvider):
     Особенности:
     - Использует переменную окружения OPENAI_API_KEY
     - Не требует пост-обработки файлов (пока)
+    - Имя модели читается из CHATGPT_MODEL_NAME или используется дефолтное
     """
     
+    DEFAULT_MODEL = 'gpt-4'
+    
     def get_model_name(self) -> str:
-        """Получение названия модели GPT."""
-        return 'gpt-4'
+        """Получение названия модели GPT из конфига или дефолтное."""
+        return os.getenv('CHATGPT_MODEL_NAME', self.DEFAULT_MODEL)
     
     def configure_aider_command(self, base_cmd: List[str], env: Dict[str, str]) -> Tuple[List[str], Dict[str, str]]:
         """

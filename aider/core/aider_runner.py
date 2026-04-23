@@ -21,10 +21,10 @@ class AiderRunner:
         Инициализация runner'а.
         
         Args:
-            code_dir: Директория с кодом (по умолчанию из SOURCES_DIR)
+            code_dir: Директория с кодом (по умолчанию из AGENT_SOURCES_DIR)
         """
         project_root = Path(__file__).parent.parent.parent
-        self.code_dir = code_dir or (project_root / os.getenv('SOURCES_DIR', 'code'))
+        self.code_dir = code_dir or (project_root / os.getenv('AGENT_SOURCES_DIR', 'code'))
         
         if not self.code_dir.exists():
             self.code_dir.mkdir(parents=True, exist_ok=True)

@@ -1,3 +1,4 @@
+import os
 import re
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -12,11 +13,14 @@ class DeepSeekProvider(BaseLLMProvider):
     Особенности:
     - Использует формат --api-key deepseek=<key>
     - Требует пост-обработку файлов (DeepSeek выводит рассуждения в именах файлов)
+    - Имя модели читается из DEEPSEEK_MODEL_NAME или используется дефолтное
     """
     
+    DEFAULT_MODEL = 'deepseek/deepseek-chat'
+    
     def get_model_name(self) -> str:
-        """Получение названия модели DeepSeek."""
-        return 'deepseek/deepseek-chat'
+        """Получение названия модели DeepSeek из конфига или дефолтное."""
+        return os.getenv('DEEPSEEK_MODEL_NAME', self.DEFAULT_MODEL)
     
     def configure_aider_command(self, base_cmd: List[str], env: Dict[str, str]) -> Tuple[List[str], Dict[str, str]]:
         """
@@ -27,14 +31,15 @@ class DeepSeekProvider(BaseLLMProvider):
             env: Переменные окружения
             
         Returns:
-            Кортеж (команда с параметрами DeepSeek, переменные окружения)
+            Кортеж (команда с параметрами DeepSeek, переменные окружения с API ключом)
         """
         cmd = base_cmd.copy()
-        cmd.extend([
-            '--model', self.get_model_name(),
-            '--api-key', f"deepseek={self.api_key}"
-        ])
-        return cmd, env
+        cmd.extend(['--model', self.get_model_name()])
+        
+        env_copy = env.copy()
+        env_copy['DEEPSEEK_API_KEY'] = self.api_key
+        
+        return cmd, env_copy
     
     def post_process_files(self, code_dir: Path) -> List[Tuple[str, str]]:
         """
