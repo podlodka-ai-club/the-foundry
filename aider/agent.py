@@ -181,7 +181,7 @@ def run_aider(task_text: str, task_id: str, llm_settings: dict) -> dict:
     
     env = os.environ.copy()
     
-    aider_cmd = ['aider', '--yes-always', '--no-auto-commits']
+    aider_cmd = ['aider', '--yes-always', '--no-git']
     
     if llm_settings['llm'] == 'DEEPSEEK':
         aider_cmd.extend([

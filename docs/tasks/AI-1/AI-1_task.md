@@ -59,7 +59,6 @@ python aider/agent.py --task="TF-2" --prompt="Напиши скрипт, выв�
 # LLM settings
 CODING_LLM=DEEPSEEK
 DEEPSEEK_API_KEY=sk-22321bd****
-DEEPSEEK_BASE_URL=https://api.deepseek.com
 ANTHROPIC_API_KEY=****
 CHATGPT_API_KEY=****
 ```

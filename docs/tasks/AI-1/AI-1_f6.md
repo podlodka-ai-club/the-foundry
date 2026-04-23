@@ -1,6 +1,6 @@
 ---
 
-**Исходная задача:**
+## Исходная задача
 
 Разработать Python-скрипт `aider/agent.py`, который будет оберткой над инструментом aider для автоматического выполнения задач по разработке с логированием результатов работы.
 
@@ -122,7 +122,6 @@ aider: error: unrecognized arguments: --api-base
 ```python
 if coding_llm == 'DEEPSEEK':
     settings['api_key'] = os.getenv('DEEPSEEK_API_KEY')
-    settings['base_url'] = os.getenv('DEEPSEEK_BASE_URL', 'https://api.deepseek.com')
     settings['model'] = 'deepseek-chat'
 ```
 
@@ -304,9 +303,39 @@ settings = {
 
 ---
 
+**Обновление 3 (23.04.2026 14:25):**
+
+Обнаружена проблема при работе aider в Docker:
+
+**Проблема:**
+```
+fatal: detected dubious ownership in repository at '/app/code'
+```
+
+**Причина:**
+Git в Docker контейнере не может работать с репозиторием в `/app/code`, так как он монтируется как volume с хоста и имеет другого владельца.
+
+**Решение:**
+
+1. **Отключен git в aider** - изменен параметр запуска:
+   - Было: `--yes-always --no-auto-commits`
+   - Стало: `--yes-always --no-git`
+
+2. **Настроен git в Dockerfile** (на будущее):
+   ```dockerfile
+   RUN git config --global user.name "Foundry Agent" && \
+       git config --global user.email "agent@foundry.local" && \
+       git config --global safe.directory '*'
+   ```
+
+Теперь aider работает без git, что решает проблему с правами доступа в Docker.
+
+---
+
 **Следующие шаги:**
 
-1. Протестировать исправления: `make runagent task=TF-1`
-2. Проверить работу с другими провайдерами (ANTHROPIC, CHATGPT)
-3. Убедиться, что логи создаются корректно
-4. Опционально: добавить unit-тесты для функций
+1. Пересобрать образ: `make build`
+2. Очистить папку code от мусора: `rm -rf code/.git code/"Let's produce the SEARCH"`
+3. Протестировать исправления: `make runagent task=TF-1`
+4. Проверить, что файл `code/current_dt.py` создается корректно
+5. Опционально: протестировать с другими провайдерами (ANTHROPIC, CHATGPT)

@@ -57,7 +57,6 @@ python aider/agent.py --task="TF-2" --prompt="Добавь обработку и
 ```
 CODING_LLM=DEEPSEEK
 DEEPSEEK_API_KEY=sk-your-key
-DEEPSEEK_BASE_URL=https://api.deepseek.com
 ```
 
 Поддерживаемые LLM: DEEPSEEK, ANTHROPIC, CHATGPT

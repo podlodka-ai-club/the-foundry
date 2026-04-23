@@ -8,3 +8,8 @@
 # LOGS
 ./*.log
 setup.log
+
+# Aider temp files
+code/.aider.tags.cache.v4
+code/.aider.chat.history.md
+code/.aider.input.history
