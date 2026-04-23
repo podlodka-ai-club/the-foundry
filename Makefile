@@ -16,9 +16,9 @@ build:
 
 runagent:
 ifdef prompt
-	docker-compose run --rm foundry-agent --task="$(task)" --prompt="$(prompt)"
+	docker-compose run --rm foundry-agent python aider/agent.py --task="$(task)" --prompt="$(prompt)"
 else
-	docker-compose run --rm foundry-agent --task="$(task)"
+	docker-compose run --rm foundry-agent python aider/agent.py --task="$(task)"
 endif
 
 shell:

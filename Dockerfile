@@ -16,4 +16,4 @@ RUN mkdir -p /app/code /app/aider/tasks
 
 WORKDIR /app
 
-ENTRYPOINT ["python", "aider/agent.py"]
+CMD ["python", "aider/agent.py"]
