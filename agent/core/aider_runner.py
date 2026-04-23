@@ -64,14 +64,15 @@ class AiderRunner:
         aider_cmd.extend(['--message', task_text])
         
         # Отладочная информация: логируем команду
-        debug_info = "=== DEBUG: Команда aider ===\n"
-        debug_info += f"CWD: {self.code_dir}\n"
-        debug_info += f"CMD: {' '.join(aider_cmd)}\n"
-        debug_info += f"Files: {existing_files}\n"
-        debug_info += "=" * 50 + "\n\n"
+        debug_info = ""
+        # debug_info += "=== DEBUG: Команда aider ===\n"
+        # debug_info += f"CWD: {self.code_dir}\n"
+        # debug_info += f"CMD: {' '.join(aider_cmd)}\n"
+        # debug_info += f"Files: {existing_files}\n"
+        # debug_info += "=" * 50 + "\n\n"
         
         # Выводим в консоль для отладки
-        print(debug_info)
+        # print(debug_info)
         
         try:
             result = subprocess.run(
