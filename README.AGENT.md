@@ -86,7 +86,7 @@ make build
 
 **Создание новой задачи:**
 ```bash
-docker-compose run --rm foundry-agent --task="TF-2" --prompt="Напиши скрипт hello world"
+docker-compose run --rm foundry-agent --task="TF-2" --prompt="Напиши скрипт, выводящий 'hello world' на языке python"
 ```
 
 **Выполнение существующей задачи:**
@@ -96,7 +96,7 @@ docker-compose run --rm foundry-agent --task="TF-1"
 
 **Через Makefile:**
 ```bash
-make runagent task=TF-2 prompt="Напиши скрипт hello world"
+make runagent task=TF-2 prompt="Напиши скрипт, выводящий 'hello world' на языке python"
 make runagent task=TF-1
 ```
 
