@@ -2,7 +2,7 @@ import pytest
 import tempfile
 from pathlib import Path
 
-from aider.core import TaskManager, LogManager
+from agent.core import TaskManager, LogManager
 
 
 class TestTaskManager:
