@@ -13,3 +13,13 @@ setup.log
 code/.aider.tags.cache.v4
 code/.aider.chat.history.md
 code/.aider.input.history
+
+# Agent temp files (tasks + test code)
+code
+aider/tasks
+
+# required agent files (tasks samples + config)
+!aider/tasks/TF-1/TF-1_task.md
+!aider/tasks/TF-2/TF-2_task.md
+!aider/tasks/TF-3/TF-3_task.md
+!code/.aider.model.metadata.json

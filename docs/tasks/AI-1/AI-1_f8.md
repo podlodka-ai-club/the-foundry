@@ -488,3 +488,78 @@ make test filter=test_core
 - `Makefile` - добавлена команда test
 - `README.TESTS.md` - создана документация по тестам
 - `README.AGENT.md` - добавлена инструкция по добавлению LLM
+
+---
+
+**Обновление 4 (23.04.2026 19:00):**
+
+Исследование DeepSeek Thinking Mode:
+
+**Проблема:**
+
+DeepSeek Chat V3 использует "thinking mode" - режим рассуждений перед выдачей ответа. Рассуждения попадают в имена файлов:
+
+```
+We'll output the SEARCH/REPLACE block.strrev.py  # ❌ Неправильно
+strrev.py                                         # ✅ Правильно
+```
+
+**Исследование:**
+
+Изучена документация:
+- [DeepSeek API - Thinking Mode](https://api-docs.deepseek.com/guides/thinking_mode)
+- [Aider - Reasoning Models](https://aider.chat/docs/config/reasoning.html)
+- [Aider - DeepSeek](https://aider.chat/docs/llms/deepseek.html)
+
+**Выводы:**
+
+1. **DeepSeek API поддерживает отключение thinking mode:**
+   ```python
+   {"model": "deepseek-chat", "thinking": {"type": "disabled"}}
+   ```
+
+2. **Aider не поддерживает параметр `thinking` напрямую:**
+   - Нет опции командной строки
+   - Возможна настройка через `.aider.model.metadata.json` (экспериментально)
+
+3. **Текущее решение (пост-обработка) оптимально:**
+   - ✅ Работает автоматически
+   - ✅ Не требует настройки
+   - ✅ Сохраняет качество ответов (thinking mode улучшает точность)
+   - ✅ Логирует переименования
+
+**Альтернативные решения:**
+
+**1. Настройка `.aider.model.metadata.json`:**
+```json
+{
+  "deepseek/deepseek-chat": {
+    "extra_params": {
+      "thinking": {"type": "disabled"}
+    }
+  }
+}
+```
+- Может не работать (litellm может не поддерживать параметр)
+- Требует тестирования
+
+**2. Использовать другую модель:**
+- DeepSeek Coder (без thinking mode)
+- Anthropic Claude / GPT-4 (без проблемы)
+- Снижает качество или увеличивает стоимость
+
+**3. Reasoning tag (не применимо):**
+- Работает для моделей с XML тегами `<think>...</think>`
+- DeepSeek Chat V3 не использует XML теги через API
+
+**Рекомендация:**
+
+Оставить текущее решение с пост-обработкой как основное:
+- Надежно работает
+- Автоматическое исправление
+- Сохраняет преимущества thinking mode
+- Не требует дополнительной настройки
+
+**Файлы изменены:**
+- `.env.sample` - добавлен комментарий о thinking mode
+- `docs/DEEPSEEK_THINKING_MODE.md` - создана полная документация по проблеме и решениям
