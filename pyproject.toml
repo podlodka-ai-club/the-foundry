@@ -3,4 +3,7 @@ name = "the-foundry"
 version = "0.1.0"
 description = "theFoundary: Automatic coding tool based on task-tracker issues"
 requires-python = ">=3.14"
-dependencies = []
+dependencies = [
+    "aider-chat>=0.72.0",
+    "python-dotenv>=1.0.0",
+]

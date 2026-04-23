@@ -1,3 +1,6 @@
+# IDE dirs
 .venv
 .idea
-.gitignore
+
+# configs
+.env
