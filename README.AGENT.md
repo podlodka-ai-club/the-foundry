@@ -109,11 +109,17 @@ docker-compose run --rm foundry-agent python -m agent.agent --task="TF-2" --prom
 docker-compose run --rm foundry-agent python -m agent.agent --task="TF-1"
 ```
 
-**Через Makefile:**
+**Через Makefile (рекомендуется):**
 ```bash
 make runagent task=TF-1
 make runagent task=TF-2 prompt="Напиши скрипт, выводящий 'hello world' на языке python"
 ```
+
+**Безопасность prompt:**
+Prompt передается через переменные окружения, поэтому можно безопасно использовать:
+- Кавычки: `prompt="Создай функцию 'hello' с параметром \"name\""`
+- Специальные символы: `prompt="Напиши скрипт с $variable и \n переносом"`
+- Многострочный текст: `prompt="Строка 1; Строка 2; Строка 3"`
 
 ### Дополнительные команды
 

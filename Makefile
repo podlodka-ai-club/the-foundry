@@ -26,11 +26,12 @@ build:
 	docker-compose build
 
 # Запустить агента для выполнения задачи из файла
+# ВАЖНО: prompt передается через переменную окружения для защиты от shell-инъекций
 runagent:
 ifdef prompt
-	docker-compose run --rm foundry-agent python -m agent.agent --task="$(task)" --prompt="$(prompt)"
+	@TASK='$(task)' PROMPT='$(prompt)' docker-compose run --rm foundry-agent sh -c 'python -m agent.agent --task="$$TASK" --prompt="$$PROMPT"'
 else
-	docker-compose run --rm foundry-agent python -m agent.agent --task="$(task)"
+	docker-compose run --rm foundry-agent python -m agent.agent --task='$(task)'
 endif
 
 # Запустить все тесты (unit + integration)
