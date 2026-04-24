@@ -5,25 +5,23 @@ from pathlib import Path
 
 import pytest
 
-from api.bus import EventBus
+from api.bus import subscribe
 from foundry import state
 from foundry.events import record_event
 from foundry.models import Event
 
 
 @pytest.mark.asyncio
-async def test_bus_subscribe_replays_from_sqlite(tmp_path: Path) -> None:
+async def test_bus_subscribe_yields_catchup_events(tmp_path: Path) -> None:
     # Arrange
     db = tmp_path / "f.sqlite"
     state.init_db(db)
     for i in range(3):
         record_event(db, 1, "plan", "agent_text", {"text": f"msg-{i}"})
 
-    local_bus = EventBus()
-
     # Act
     received: list[Event] = []
-    agen = local_bus.subscribe(db, task_id=1)
+    agen = subscribe(db, task_id=1, poll_interval=0.05)
     try:
         for _ in range(3):
             received.append(await asyncio.wait_for(agen.__anext__(), timeout=1.0))
@@ -36,18 +34,41 @@ async def test_bus_subscribe_replays_from_sqlite(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_bus_subscribe_with_after_seq_skips_old(tmp_path: Path) -> None:
+async def test_bus_subscribe_yields_live_events_after_catchup(tmp_path: Path) -> None:
+    # Arrange — empty DB, subscriber starts before any events exist.
+    db = tmp_path / "f.sqlite"
+    state.init_db(db)
+
+    agen = subscribe(db, task_id=1, poll_interval=0.05)
+
+    # Act: schedule a write after the generator enters its poll loop.
+    async def _publish_later() -> None:
+        await asyncio.sleep(0.1)
+        record_event(db, 1, "plan", "agent_text", {"text": "live"})
+
+    publisher = asyncio.create_task(_publish_later())
+    try:
+        event = await asyncio.wait_for(agen.__anext__(), timeout=3.0)
+    finally:
+        await publisher
+        await agen.aclose()
+
+    # Assert
+    assert event.seq == 1
+    assert event.payload == {"text": "live"}
+
+
+@pytest.mark.asyncio
+async def test_bus_subscribe_filters_by_after_seq(tmp_path: Path) -> None:
     # Arrange
     db = tmp_path / "f.sqlite"
     state.init_db(db)
     for i in range(5):
         record_event(db, 1, "plan", "agent_text", {"text": f"m{i}"})
 
-    local_bus = EventBus()
-
     # Act
     received: list[Event] = []
-    agen = local_bus.subscribe(db, task_id=1, after_seq=3)
+    agen = subscribe(db, task_id=1, after_seq=3, poll_interval=0.05)
     try:
         for _ in range(2):
             received.append(await asyncio.wait_for(agen.__anext__(), timeout=1.0))
@@ -56,67 +77,3 @@ async def test_bus_subscribe_with_after_seq_skips_old(tmp_path: Path) -> None:
 
     # Assert
     assert [ev.seq for ev in received] == [4, 5]
-
-
-@pytest.mark.asyncio
-async def test_bus_publish_delivers_to_subscribers(tmp_path: Path) -> None:
-    # Arrange
-    db = tmp_path / "f.sqlite"
-    state.init_db(db)
-    local_bus = EventBus()
-
-    # Act: first drain catch-up (none), then publish live.
-    agen = local_bus.subscribe(db, task_id=1)
-
-    async def consume_one() -> Event:
-        return await asyncio.wait_for(agen.__anext__(), timeout=1.0)
-
-    consumer_task = asyncio.create_task(consume_one())
-    await asyncio.sleep(0.05)  # allow catch-up to drain, get into the queue wait
-
-    live_event = Event(
-        id=0, task_id=1, seq=1, stage="plan", kind="agent_text",
-        ts_ms=0, payload={"text": "live"},
-    )
-    local_bus.publish(live_event)
-    got = await consumer_task
-
-    # Assert
-    assert got.seq == 1
-    assert got.payload == {"text": "live"}
-
-    await agen.aclose()
-
-
-@pytest.mark.asyncio
-async def test_bus_publish_filters_by_task_id(tmp_path: Path) -> None:
-    # Arrange
-    db = tmp_path / "f.sqlite"
-    state.init_db(db)
-    local_bus = EventBus()
-
-    agen = local_bus.subscribe(db, task_id=1)
-
-    async def consume_one() -> Event:
-        return await asyncio.wait_for(agen.__anext__(), timeout=1.0)
-
-    consumer_task = asyncio.create_task(consume_one())
-    await asyncio.sleep(0.05)
-
-    # Act: publish wrong task, then right task.
-    local_bus.publish(Event(
-        id=0, task_id=2, seq=1, stage="plan", kind="agent_text",
-        ts_ms=0, payload={"text": "wrong-task"},
-    ))
-    local_bus.publish(Event(
-        id=0, task_id=1, seq=1, stage="plan", kind="agent_text",
-        ts_ms=0, payload={"text": "ok"},
-    ))
-
-    got = await consumer_task
-
-    # Assert
-    assert got.task_id == 1
-    assert got.payload == {"text": "ok"}
-
-    await agen.aclose()

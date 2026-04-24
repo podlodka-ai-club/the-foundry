@@ -1,90 +1,55 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from pathlib import Path
 from typing import AsyncIterator
 
-import structlog
-
-from foundry.events import read_events, subscribe_writer
+from foundry.events import read_events
 from foundry.models import Event
 
-log = structlog.get_logger(__name__)
+
+def _default_poll_interval() -> float:
+    raw = os.environ.get("FOUNDRY_SSE_POLL_SEC", "").strip()
+    if not raw:
+        return 0.5
+    try:
+        return float(raw)
+    except ValueError:
+        return 0.5
 
 
-class EventBus:
-    """In-process pubsub over `record_event`.
+POLL_SEC = _default_poll_interval()
 
-    Each subscriber owns an `asyncio.Queue`. `publish()` is safe to call from
-    any thread — it marshals to the event loop captured on first subscribe via
-    `loop.call_soon_threadsafe`. Catch-up phase reads persisted events from
-    SQLite, live phase delivers only events with `seq > last_seen` for the
-    requested task.
+
+async def subscribe(
+    db_path: Path,
+    task_id: int,
+    after_seq: int | None = None,
+    *,
+    poll_interval: float | None = None,
+    is_disconnected=None,
+) -> AsyncIterator[Event]:
+    """Yield events for `task_id` in seq order by polling SQLite.
+
+    Works across processes — the pipeline writer and the API reader do not
+    need to share memory. Catch-up and live phases are unified: every tick
+    is a single `read_events(..., after_seq=last_seen)` call. SQLite reads
+    are offloaded to a worker thread so uvicorn's event loop stays
+    responsive.
     """
+    interval = POLL_SEC if poll_interval is None else poll_interval
+    last_seen = after_seq or 0
 
-    def __init__(self) -> None:
-        self._queues: set[asyncio.Queue[Event]] = set()
-        self._loop: asyncio.AbstractEventLoop | None = None
-        self._hook_installed: bool = False
+    while True:
+        events = await asyncio.to_thread(
+            read_events, db_path, task_id, after_seq=last_seen
+        )
+        for ev in events:
+            last_seen = ev.seq
+            yield ev
 
-    def _ensure_hook(self) -> None:
-        if not self._hook_installed:
-            subscribe_writer(self.publish)
-            self._hook_installed = True
+        if is_disconnected is not None and await is_disconnected():
+            break
 
-    async def subscribe(
-        self,
-        db_path: Path,
-        task_id: int,
-        after_seq: int | None = None,
-    ) -> AsyncIterator[Event]:
-        """Catch-up from SQLite, then live. Yields events strictly in seq order."""
-        self._ensure_hook()
-        # Always capture the current running loop; across test runs or app
-        # restarts the loop object changes, and stale loops make
-        # call_soon_threadsafe raise RuntimeError.
-        self._loop = asyncio.get_running_loop()
-
-        queue: asyncio.Queue[Event] = asyncio.Queue(maxsize=1024)
-        self._queues.add(queue)
-
-        last_seen = after_seq or 0
-        try:
-            for ev in read_events(db_path, task_id, after_seq=after_seq):
-                last_seen = max(last_seen, ev.seq)
-                yield ev
-
-            while True:
-                ev = await queue.get()
-                if ev.task_id != task_id:
-                    continue
-                if ev.seq <= last_seen:
-                    continue
-                last_seen = ev.seq
-                yield ev
-        finally:
-            self._queues.discard(queue)
-
-    def publish(self, event: Event) -> None:
-        """Fan-out to all live subscriber queues. Called from any thread."""
-        if not self._queues:
-            return
-        loop = self._loop
-        for queue in list(self._queues):
-            if loop is not None and loop.is_running():
-                try:
-                    loop.call_soon_threadsafe(self._put_nowait, queue, event)
-                except RuntimeError as exc:
-                    log.warning("bus.publish_schedule_failed", error=repr(exc))
-            else:
-                self._put_nowait(queue, event)
-
-    @staticmethod
-    def _put_nowait(queue: asyncio.Queue[Event], event: Event) -> None:
-        try:
-            queue.put_nowait(event)
-        except asyncio.QueueFull:
-            log.warning("bus.queue_full_drop", task_id=event.task_id, seq=event.seq)
-
-
-bus = EventBus()
+        await asyncio.sleep(interval)

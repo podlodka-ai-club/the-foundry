@@ -17,30 +17,6 @@ log = structlog.get_logger(__name__)
 _TRUNCATE_FIELDS = {"text", "stdout", "stderr", "input", "output"}
 _MAX_FIELD_BYTES = 64 * 1024
 
-# Post-commit subscriber hooks. Writers are called synchronously after a
-# successful INSERT+COMMIT in `record_event`. Errors inside a writer are
-# logged and swallowed — pipeline must never break because of a subscriber.
-_subscribers: list[Callable[[Event], None]] = []
-
-
-def subscribe_writer(cb: Callable[[Event], None]) -> None:
-    """Register a post-commit callback. Idempotent per cb."""
-    if cb not in _subscribers:
-        _subscribers.append(cb)
-
-
-def unsubscribe_writer(cb: Callable[[Event], None]) -> None:
-    if cb in _subscribers:
-        _subscribers.remove(cb)
-
-
-def _notify_subscribers(event: Event) -> None:
-    for cb in list(_subscribers):
-        try:
-            cb(event)
-        except Exception as exc:  # noqa: BLE001 — subscribers must not break writers
-            log.warning("events.subscriber_failed", error=repr(exc))
-
 
 def _truncate_payload(payload: dict[str, Any]) -> dict[str, Any]:
     """Recursively walk payload; replace long string fields in _TRUNCATE_FIELDS
@@ -105,16 +81,6 @@ def record_event(
                     (task_id, seq, stage, kind, ts_ms, payload_json),
                 )
                 conn.commit()
-                event = Event(
-                    id=0,
-                    task_id=task_id,
-                    seq=seq,
-                    stage=stage,
-                    kind=kind,
-                    ts_ms=ts_ms,
-                    payload=truncated,
-                )
-                _notify_subscribers(event)
                 return seq
             except sqlite3.IntegrityError:
                 # Seq assignment relies on UNIQUE(task_id, seq) + retry, not locking.

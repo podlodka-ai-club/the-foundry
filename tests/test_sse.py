@@ -79,14 +79,14 @@ async def test_sse_replays_from_last_event_id(_db: Path) -> None:
         record_event(_db, task.id, "plan", "agent_text", {"text": f"m{i}"})
 
     # Act: no Last-Event-ID → all 5.
-    agen = sse_stream(_db, task.id, after_seq=None)
+    agen = sse_stream(_db, task.id, after_seq=None, poll_interval=0.05)
     all_chunks: list[bytes] = []
     for _ in range(5):
         all_chunks.append(await asyncio.wait_for(agen.__anext__(), timeout=1.0))
     await agen.aclose()
 
     # Act 2: Last-Event-ID=3 → only 4, 5.
-    agen2 = sse_stream(_db, task.id, after_seq=3)
+    agen2 = sse_stream(_db, task.id, after_seq=3, poll_interval=0.05)
     tail_chunks: list[bytes] = []
     for _ in range(2):
         tail_chunks.append(await asyncio.wait_for(agen2.__anext__(), timeout=1.0))
@@ -100,7 +100,7 @@ async def test_sse_replays_from_last_event_id(_db: Path) -> None:
 async def test_sse_live_event_pushes(_db: Path) -> None:
     # Arrange
     task = _make_task(_db, issue_number=2)
-    agen = sse_stream(_db, task.id, after_seq=None)
+    agen = sse_stream(_db, task.id, after_seq=None, poll_interval=0.05)
 
     # Act: schedule a live record_event while the generator is awaiting queue.
     async def _publish_later() -> None:

@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 from foundry.config import load_settings
 from foundry.models import Event
 
-from .bus import bus
+from .bus import subscribe as bus_subscribe
 from .projections import alias_stage
 
 router = APIRouter()
@@ -47,11 +47,16 @@ async def sse_stream(
     after_seq: int | None,
     *,
     is_disconnected=None,
+    poll_interval: float | None = None,
 ) -> AsyncIterator[bytes]:
     """Core SSE producer — kept separate from the Request for easier testing."""
-    async for event in bus.subscribe(db_path, task_id, after_seq=after_seq):
-        if is_disconnected is not None and await is_disconnected():
-            break
+    async for event in bus_subscribe(
+        db_path,
+        task_id,
+        after_seq=after_seq,
+        poll_interval=poll_interval,
+        is_disconnected=is_disconnected,
+    ):
         yield format_sse(event)
 
 
