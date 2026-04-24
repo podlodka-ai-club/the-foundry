@@ -21,9 +21,11 @@ help:
 	@echo "  make test filter=test_providers.py"
 	@echo "  make test filter=test_core"
 
+# Собрать Docker образ
 build:
 	docker-compose build
 
+# Запустить агента для выполнения задачи из файла
 runagent:
 ifdef prompt
 	docker-compose run --rm foundry-agent python -m agent.agent --task="$(task)" --prompt="$(prompt)"
@@ -31,6 +33,7 @@ else
 	docker-compose run --rm foundry-agent python -m agent.agent --task="$(task)"
 endif
 
+# Запустить все тесты (unit + integration)
 test:
 ifdef filter
 	@if echo "$(filter)" | grep -q "\.py$$"; then \
@@ -42,15 +45,24 @@ else
 	pytest tests/ -v
 endif
 
+# Запустить только unit тесты (быстрые)
 test-unit:
 	pytest tests/ -v -m "not integration"
 
+# Запустить только интеграционные тесты
 test-int:
 	pytest tests/ -v -m integration
 
+# Открыть shell в контейнере
 shell:
 	docker-compose run --rm foundry-agent /bin/bash
 
+# Scoped cleanup
+# ✅ Останавливает и удаляет контейнеры проекта
+# ✅ Удаляет volumes проекта
+# ✅ Удаляет образ проекта
+# ✅ Не затрагивает другие проекты
 clean:
 	docker-compose down -v
-	docker system prune -f
+	docker-compose rm -f
+	docker rmi -f the-foundry-foundry-agent 2>/dev/null || true

@@ -21,12 +21,102 @@ class AiderRunner:
         
         Args:
             code_dir: Директория с кодом (по умолчанию из AGENT_SOURCES_DIR)
+        
+        Raises:
+            ValueError: Если code_dir небезопасен или находится в защищенной зоне
         """
         project_root = Path(__file__).parent.parent.parent
-        self.code_dir = code_dir or (project_root / os.getenv('AGENT_SOURCES_DIR', 'code'))
+        
+        if code_dir is None:
+            sources_dir = os.getenv('AGENT_SOURCES_DIR', 'code')
+            sources_path = Path(sources_dir)
+            
+            # Если абсолютный путь
+            if sources_path.is_absolute():
+                code_dir = self._validate_absolute_path(sources_path)
+            else:
+                # Относительный путь - проверяем на '..'
+                if '..' in sources_path.parts:
+                    raise ValueError(
+                        f"AGENT_SOURCES_DIR не должен содержать '..': {sources_dir}\n"
+                        f"Используйте относительный путь без '..' или абсолютный путь с AGENT_ALLOW_ABSOLUTE_PATHS=true"
+                    )
+                
+                code_dir = project_root / sources_dir
+        
+        self.code_dir = code_dir
         
         if not self.code_dir.exists():
-            self.code_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                self.code_dir.mkdir(parents=True, exist_ok=True)
+            except PermissionError:
+                raise ValueError(
+                    f"Нет прав на создание директории: {self.code_dir}"
+                )
+    
+    def _validate_absolute_path(self, sources_path: Path) -> Path:
+        """
+        Валидация абсолютного пути.
+        
+        Args:
+            sources_path: Абсолютный путь для проверки
+        
+        Returns:
+            Валидированный путь
+        
+        Raises:
+            ValueError: Если путь находится в защищенной зоне или не подтвержден
+        """
+        # Whitelist опасных директорий
+        dangerous_paths = [
+            Path('/etc'),
+            Path('/usr'),
+            Path('/bin'),
+            Path('/sbin'),
+            Path('/boot'),
+            Path('/sys'),
+            Path('/proc'),
+            Path('/dev'),
+            Path('/var'),
+            Path('/root'),
+        ]
+        
+        # Добавляем конфиденциальные директории пользователя
+        try:
+            home = Path.home()
+            dangerous_paths.extend([
+                home / '.ssh',
+                home / '.config',
+                home / '.gnupg',
+            ])
+        except Exception:
+            pass  # Если не можем определить home, пропускаем
+        
+        # Проверяем, не находится ли путь в опасной зоне
+        resolved_path = sources_path.resolve()
+        for dangerous in dangerous_paths:
+            try:
+                dangerous_resolved = dangerous.resolve()
+                resolved_path.relative_to(dangerous_resolved)
+                raise ValueError(
+                    f"Запрещено использовать директорию: {resolved_path}\n"
+                    f"Она находится в защищенной зоне: {dangerous_resolved}\n"
+                    f"Используйте безопасную директорию (например, /tmp или ~/projects)"
+                )
+            except ValueError as e:
+                # relative_to выбрасывает ValueError если пути не связаны
+                if "does not start with" not in str(e) and "is not in the subpath" not in str(e):
+                    raise
+        
+        # Требуем явного подтверждения через env переменную
+        if not os.getenv('AGENT_ALLOW_ABSOLUTE_PATHS', '').lower() == 'true':
+            raise ValueError(
+                f"Использование абсолютного пути требует явного подтверждения.\n"
+                f"Путь: {sources_path}\n"
+                f"Добавьте в .env: AGENT_ALLOW_ABSOLUTE_PATHS=true"
+            )
+        
+        return sources_path
     
     def run(
         self,
