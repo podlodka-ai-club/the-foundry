@@ -11,7 +11,7 @@ class DeepSeekProvider(BaseLLMProvider):
     Провайдер для работы с DeepSeek LLM.
     
     Особенности:
-    - Использует формат --api-key deepseek=<key>
+    - API ключ передается через переменную окружения DEEPSEEK_API_KEY
     - Требует пост-обработку файлов (DeepSeek выводит рассуждения в именах файлов)
     - Имя модели читается из DEEPSEEK_MODEL_NAME или используется дефолтное
     """
