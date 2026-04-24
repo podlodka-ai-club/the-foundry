@@ -7,6 +7,7 @@ from langfuse import observe
 
 from . import observability, state, worktree
 from .agents import AgentSettings, AgentStage
+from .agents.base import AgentTask, build_fresh_prompt
 from .config import Settings
 from .events import read_events, record_event, stage_span
 from .models import Stage, Task, TaskStatus
@@ -90,11 +91,17 @@ def _process_task(settings: Settings, task: Task) -> Task:
     # PLAN
     task = _mark(settings, task, stage=Stage.PLAN)
     plan_agent_settings = AgentSettings.from_env(AgentStage.PLAN, db_path=settings.db_path)
+    plan_agent_task = AgentTask(
+        id=task.id or task.issue_number,
+        title=task.issue_title,
+        description=task.issue_body,
+    )
+    plan_prompt = build_fresh_prompt(AgentStage.PLAN, plan_agent_task, "")
     with stage_span(
         settings.db_path,
         task.id,
         Stage.PLAN.value,
-        input={"title": task.issue_title},
+        input={"title": task.issue_title, "prompt": plan_prompt},
         agent={"name": plan_agent_settings.backend, "model": plan_agent_settings.model},
     ) as finish:
         plan = agent_plan_stage.run(task, ctx, wt_path, settings)
@@ -109,11 +116,19 @@ def _process_task(settings: Settings, task: Task) -> Task:
     # IMPLEMENT
     task = _mark(settings, task, stage=Stage.IMPLEMENT)
     impl_agent_settings = AgentSettings.from_env(AgentStage.IMPLEMENT, db_path=settings.db_path)
+    impl_agent_task = AgentTask(
+        id=task.id or task.issue_number,
+        title=task.issue_title,
+        description=task.issue_body,
+    )
+    impl_prompt = build_fresh_prompt(
+        AgentStage.IMPLEMENT, impl_agent_task, plan.get("plan", "")
+    )
     with stage_span(
         settings.db_path,
         task.id,
         Stage.IMPLEMENT.value,
-        input={"title": task.issue_title, "plan_summary": plan.get("summary", "")},
+        input={"title": task.issue_title, "prompt": impl_prompt},
         agent={"name": impl_agent_settings.backend, "model": impl_agent_settings.model},
     ) as finish:
         impl_result = agent_implement_stage.run(task, plan, wt_path, settings)
@@ -131,16 +146,18 @@ def _process_task(settings: Settings, task: Task) -> Task:
     # VERIFY
     task = _mark(settings, task, stage=Stage.VERIFY)
     with stage_span(settings.db_path, task.id, Stage.VERIFY.value) as finish:
-        verify_result = verify_stage.run(task, wt_path, settings)
+        verify_result = verify_stage.run(task, wt_path, settings, impl_result=impl_result)
         if not verify_result.get("passed"):
             raise RuntimeError(f"verify failed: {verify_result}")
-        finish(output={"ok": True})
+        finish(output={"ok": True, "report": verify_result.get("report", "")})
     state.append_log(settings.db_path, task.id, Stage.VERIFY, verify_result)
 
     # PR
     task = _mark(settings, task, stage=Stage.PR)
     with stage_span(settings.db_path, task.id, Stage.PR.value) as finish:
-        pr_result = pr_stage.run(task, wt_path, branch_name, settings)
+        pr_result = pr_stage.run(
+            task, wt_path, branch_name, settings, report=verify_result.get("report", "")
+        )
         task.pr_url = pr_result["pr_url"]
         finish(output={"pr_url": pr_result["pr_url"]})
     state.append_log(settings.db_path, task.id, Stage.PR, pr_result)

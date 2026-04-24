@@ -10,10 +10,19 @@ from ..models import Task
 
 
 @observe(name="stage.pr")
-def run(task: Task, worktree_path: Path, branch_name: str, settings: Settings) -> dict:
+def run(
+    task: Task,
+    worktree_path: Path,
+    branch_name: str,
+    settings: Settings,
+    report: str | None = None,
+) -> dict:
     """Commit, push and open a PR against settings.target_repo.
 
     Idempotent-ish: if task already has a pr_url, callers should skip this stage.
+    `report` is an optional human-readable summary (from verify, or the
+    implement agent response until a real verifier exists) embedded in the PR
+    body.
     """
     shell.run(["git", "add", "-A"], cwd=worktree_path)
 
@@ -27,11 +36,16 @@ def run(task: Task, worktree_path: Path, branch_name: str, settings: Settings) -
     shell.run(["git", "commit", "-m", commit_message], cwd=worktree_path)
     shell.run(["git", "push", "-u", "origin", branch_name], cwd=worktree_path)
 
-    body = (
-        f"Automated PR from The Foundry (skeleton mode).\n\n"
-        f"Closes #{task.issue_number}\n\n"
-        f"Issue: {task.issue_title}"
-    )
+    body_parts = [
+        "Automated PR from The Foundry (skeleton mode).",
+        "",
+        f"Closes #{task.issue_number}",
+        "",
+        f"Issue: {task.issue_title}",
+    ]
+    if report:
+        body_parts += ["", "## Отчёт", "", report.strip()]
+    body = "\n".join(body_parts)
     pr_result = shell.run(
         [
             "gh", "pr", "create",
