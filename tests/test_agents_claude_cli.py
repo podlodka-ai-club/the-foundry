@@ -147,10 +147,22 @@ def test_extract_usage_returns_none_when_missing() -> None:
     assert ClaudeCliAgent._extract_usage(events) is None
 
 
-def test_extract_model_reads_from_result_event() -> None:
+def test_extract_model_from_modelUsage_keys() -> None:
     events = [
         {"type": "system", "session_id": "s"},
-        {"type": "result", "result": "ok", "model": "claude-haiku-4-5-20250902"},
+        {
+            "type": "result",
+            "result": "ok",
+            "modelUsage": {
+                "claude-haiku-4-5-20251001": {"inputTokens": 10, "outputTokens": 5}
+            },
+        },
     ]
 
-    assert ClaudeCliAgent._extract_model(events) == "claude-haiku-4-5-20250902"
+    assert ClaudeCliAgent._extract_model(events) == "claude-haiku-4-5-20251001"
+
+
+def test_extract_model_falls_back_to_top_level_field() -> None:
+    events = [{"type": "result", "result": "ok", "model": "claude-sonnet-4"}]
+
+    assert ClaudeCliAgent._extract_model(events) == "claude-sonnet-4"

@@ -96,14 +96,16 @@ def test_apply_passes_model_and_worktree_to_cli(tmp_path: Path) -> None:
     assert run.call_args.kwargs["cwd"] == tmp_path
 
 
-def test_extract_usage_from_top_level_token_count() -> None:
+def test_extract_usage_from_turn_completed() -> None:
     events = [
         {"type": "thread.started", "thread_id": "t"},
         {
-            "type": "token_count",
-            "input_tokens": 300,
-            "output_tokens": 80,
-            "cached_input_tokens": 120,
+            "type": "turn.completed",
+            "usage": {
+                "input_tokens": 300,
+                "output_tokens": 80,
+                "cached_input_tokens": 120,
+            },
         },
     ]
 
@@ -112,18 +114,18 @@ def test_extract_usage_from_top_level_token_count() -> None:
     assert got == {"input": 300, "output": 80, "cache_read_input": 120}
 
 
-def test_extract_usage_picks_last_token_count_event() -> None:
+def test_extract_usage_sums_multiple_turns() -> None:
     events = [
-        {"type": "token_count", "input_tokens": 10, "output_tokens": 5},
-        {"type": "token_count", "input_tokens": 100, "output_tokens": 50},
+        {"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 5}},
+        {"type": "turn.completed", "usage": {"input_tokens": 100, "output_tokens": 50}},
     ]
 
     got = CodexCliAgent._extract_usage(events)
 
-    assert got == {"input": 100, "output": 50}
+    assert got == {"input": 110, "output": 55}
 
 
-def test_extract_usage_returns_none_when_no_token_count() -> None:
+def test_extract_usage_returns_none_when_no_turn_completed() -> None:
     events = [{"type": "item.completed", "item": {"type": "agent_message", "text": "x"}}]
 
     assert CodexCliAgent._extract_usage(events) is None

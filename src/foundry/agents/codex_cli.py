@@ -110,24 +110,24 @@ class CodexCliAgent:
 
     @staticmethod
     def _extract_usage(events: list[dict]) -> dict[str, int] | None:
-        """Pull token counts from the final `token_count` event.
+        """Sum token counts across all `turn.completed` events.
 
-        Codex emits one or more `token_count` events; the last one carries the
-        cumulative total for the run. Field names can be either top-level
-        (`input_tokens`) or nested under `usage` / `info`.
+        Codex emits a `turn.completed` event per turn with a `usage` dict:
+        `{"input_tokens": ..., "output_tokens": ..., "cached_input_tokens": ...}`.
+        Multi-turn runs get summed; single-turn just returns that one set.
         """
-        for event in reversed(events):
-            if event.get("type") != "token_count":
+        totals: dict[str, int] = {}
+        for event in events:
+            if event.get("type") != "turn.completed":
                 continue
-            src = event.get("usage") or event.get("info") or event
-            if not isinstance(src, dict):
+            usage = event.get("usage") or {}
+            if not isinstance(usage, dict):
                 continue
-            out: dict[str, int] = {}
-            if "input_tokens" in src:
-                out["input"] = int(src["input_tokens"])
-            if "output_tokens" in src:
-                out["output"] = int(src["output_tokens"])
-            if "cached_input_tokens" in src:
-                out["cache_read_input"] = int(src["cached_input_tokens"])
-            return out or None
-        return None
+            for key_src, key_dst in (
+                ("input_tokens", "input"),
+                ("output_tokens", "output"),
+                ("cached_input_tokens", "cache_read_input"),
+            ):
+                if key_src in usage:
+                    totals[key_dst] = totals.get(key_dst, 0) + int(usage[key_src])
+        return totals or None

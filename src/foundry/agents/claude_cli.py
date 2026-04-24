@@ -129,8 +129,18 @@ class ClaudeCliAgent:
 
     @staticmethod
     def _extract_model(events: list[dict]) -> str | None:
-        """Read the fully-qualified model id from the `result` event."""
+        """Read the fully-qualified model id from the `result` event.
+
+        Claude exposes it via `modelUsage` — a dict keyed by model name
+        (e.g. `claude-haiku-4-5-20251001`). Older versions had a top-level
+        `model` field, which we still check as a fallback.
+        """
         for event in reversed(events):
-            if event.get("type") == "result" and event.get("model"):
+            if event.get("type") != "result":
+                continue
+            model_usage = event.get("modelUsage")
+            if isinstance(model_usage, dict) and model_usage:
+                return str(next(iter(model_usage)))
+            if event.get("model"):
                 return str(event["model"])
         return None
