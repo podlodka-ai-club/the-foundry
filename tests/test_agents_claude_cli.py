@@ -102,8 +102,7 @@ def test_apply_passes_model_and_max_turns_to_cli(tmp_path: Path) -> None:
     cmd = run.call_args.args[0]
     assert cmd[cmd.index("--model") + 1] == "opus"
     assert cmd[cmd.index("--max-turns") + 1] == "11"
-    assert "--permission-mode" in cmd
-    assert cmd[cmd.index("--permission-mode") + 1] == "acceptEdits"
+    assert "--dangerously-skip-permissions" in cmd
 
 
 def test_apply_runs_in_worktree_cwd(tmp_path: Path) -> None:

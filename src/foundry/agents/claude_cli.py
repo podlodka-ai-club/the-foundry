@@ -57,8 +57,7 @@ class ClaudeCliAgent:
             "--output-format",
             "stream-json",
             "--verbose",
-            "--permission-mode",
-            "acceptEdits",
+            "--dangerously-skip-permissions",
             "--max-turns",
             str(self._settings.max_turns),
         ]
