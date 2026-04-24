@@ -5,6 +5,8 @@ from unittest.mock import patch
 
 from foundry.agents import AgentSettings, AgentStage, AgentTask
 from foundry.agents.claude_cli import ClaudeCliAgent
+from foundry.events import read_events
+from foundry.state import init_db
 
 
 def _task(task_id: int = 1) -> AgentTask:
@@ -72,8 +74,8 @@ def test_apply_caches_session_id_and_resumes_next_call(tmp_path: Path) -> None:
     ]
     resume_events = [{"type": "result", "result": "followup"}]
 
-    with patch("foundry.agents.claude_cli.run_cli_jsonl") as run:
-        run.side_effect = [fresh_events, resume_events]
+    with patch("foundry.agents.claude_cli.iter_cli_jsonl") as run:
+        run.side_effect = [iter(fresh_events), iter(resume_events)]
 
         first = agent.apply(task=task, worktree=tmp_path, input="initial")
         second = agent.apply(task=task, worktree=tmp_path, input="more")
@@ -92,8 +94,8 @@ def test_apply_passes_model_and_max_turns_to_cli(tmp_path: Path) -> None:
     agent = ClaudeCliAgent(settings=_settings(model="opus", max_turns=11))
 
     with patch(
-        "foundry.agents.claude_cli.run_cli_jsonl",
-        return_value=[{"type": "result", "result": "ok"}],
+        "foundry.agents.claude_cli.iter_cli_jsonl",
+        return_value=iter([{"type": "result", "result": "ok"}]),
     ) as run:
         agent.apply(task=_task(), worktree=tmp_path, input="")
 
@@ -108,8 +110,8 @@ def test_apply_runs_in_worktree_cwd(tmp_path: Path) -> None:
     agent = ClaudeCliAgent(settings=_settings())
 
     with patch(
-        "foundry.agents.claude_cli.run_cli_jsonl",
-        return_value=[{"type": "result", "result": "ok"}],
+        "foundry.agents.claude_cli.iter_cli_jsonl",
+        return_value=iter([{"type": "result", "result": "ok"}]),
     ) as run:
         agent.apply(task=_task(), worktree=tmp_path, input="")
 
@@ -166,3 +168,68 @@ def test_extract_model_falls_back_to_top_level_field() -> None:
     events = [{"type": "result", "result": "ok", "model": "claude-sonnet-4"}]
 
     assert ClaudeCliAgent._extract_model(events) == "claude-sonnet-4"
+
+
+def test_claude_cli_emits_agent_tool_events_during_apply(tmp_path: Path) -> None:
+    # Arrange: real db so record_event can write.
+    db = tmp_path / "f.sqlite"
+    init_db(db)
+    agent = ClaudeCliAgent(settings=_settings(db_path=db))
+    task = _task(task_id=101)
+    streamed = [
+        {"type": "system", "session_id": "sess-101"},
+        {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {"type": "tool_use", "name": "Read", "input": {"file_path": "/a.py"}},
+                ]
+            },
+        },
+        {
+            "type": "assistant",
+            "message": {"content": [{"type": "text", "text": "done"}]},
+        },
+        {"type": "result", "result": "final line\nmore"},
+    ]
+
+    # Act
+    with patch(
+        "foundry.agents.claude_cli.iter_cli_jsonl",
+        return_value=iter(streamed),
+    ):
+        result = agent.apply(task=task, worktree=tmp_path, input="")
+
+    # Assert: contract unchanged + events stored in expected order.
+    assert result.response == "final line\nmore"
+    assert result.result == "final line"
+
+    kinds = [(e.kind, e.seq) for e in read_events(db, task_id=101)]
+    kind_names = [k for k, _ in kinds]
+    assert "agent_tool" in kind_names
+    assert "agent_text" in kind_names
+    assert "agent_result" in kind_names
+
+    tool_seq = next(seq for k, seq in kinds if k == "agent_tool")
+    result_seq = next(seq for k, seq in kinds if k == "agent_result")
+    assert tool_seq < result_seq
+
+
+def test_claude_cli_skips_event_emission_without_db_path(tmp_path: Path) -> None:
+    agent = ClaudeCliAgent(settings=_settings())  # db_path=None
+    streamed = [
+        {
+            "type": "assistant",
+            "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {"command": "ls"}}]},
+        },
+        {"type": "result", "result": "ok"},
+    ]
+
+    with patch(
+        "foundry.agents.claude_cli.iter_cli_jsonl",
+        return_value=iter(streamed),
+    ):
+        # Should not raise even though db_path is None.
+        out = agent.apply(task=_task(), worktree=tmp_path, input="")
+
+    assert out.response == "ok"

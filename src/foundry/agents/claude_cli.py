@@ -1,17 +1,19 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from .. import observability
+from ..events import record_event
 from .base import (
     AgentResult,
     AgentStage,
     AgentTask,
     build_fresh_prompt,
     first_line,
-    run_cli_jsonl,
 )
 from .config import AgentSettings
+from .streaming import _normalize_tool_event, iter_cli_jsonl
 
 
 class ClaudeCliAgent:
@@ -21,6 +23,12 @@ class ClaudeCliAgent:
     keyed by task id: first call for a given task renders the prompt
     template from `prompts/<stage>.md`; subsequent calls pass
     `--resume <id>` with just `input`.
+
+    Events are streamed line-by-line via `iter_cli_jsonl` and mirrored into
+    `task_events` (`agent_tool` / `agent_text` / `agent_thinking` /
+    `agent_result`) so the UI can watch a stage as it runs. The
+    `AgentResult` contract is unchanged — streaming is purely a side
+    channel.
     """
 
     name = "claude_cli"
@@ -64,7 +72,10 @@ class ClaudeCliAgent:
             model=self._settings.model or None,
             input=prompt,
         ) as gen:
-            events = run_cli_jsonl(cmd, cwd=worktree, timeout_sec=self._settings.timeout_sec)
+            events: list[dict[str, Any]] = []
+            for event in iter_cli_jsonl(cmd, cwd=worktree):
+                events.append(event)
+                self._emit_for(task, event)
 
             new_session_id = self._extract_session_id(events)
             if new_session_id:
@@ -77,6 +88,10 @@ class ClaudeCliAgent:
                 gen, output=response, usage=usage, model=actual_model
             )
 
+            # Final agent_result breadcrumb — first line of the response,
+            # stable regardless of how many text blocks we streamed.
+            self._record(task, kind="agent_result", payload={"summary": first_line(response)})
+
         return AgentResult(
             stage=self.stage,
             response=response,
@@ -85,6 +100,44 @@ class ClaudeCliAgent:
 
     def get_session_id(self, task: AgentTask) -> str | None:
         return self._sessions.get(task.id)
+
+    def _emit_for(self, task: AgentTask, event: dict[str, Any]) -> None:
+        """Translate one streamed CLI event into `task_events` rows."""
+        etype = event.get("type")
+        if etype != "assistant":
+            return
+        message = event.get("message") or {}
+        content = message.get("content") or []
+        if not isinstance(content, list):
+            return
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            btype = block.get("type")
+            if btype == "tool_use":
+                self._record(task, kind="agent_tool", payload=_normalize_tool_event(block))
+            elif btype == "text":
+                text = block.get("text")
+                if text:
+                    self._record(task, kind="agent_text", payload={"text": str(text)})
+            elif btype == "thinking":
+                # Claude CLI historically used `thinking` but some versions
+                # emit the text under `text` — fall back to either.
+                text = block.get("thinking") or block.get("text")
+                if text:
+                    self._record(task, kind="agent_thinking", payload={"text": str(text)})
+
+    def _record(self, task: AgentTask, *, kind: str, payload: dict[str, Any]) -> None:
+        """Persist an event iff we have a db to write to and a task id."""
+        if self._settings.db_path is None or task.id is None:
+            return
+        record_event(
+            self._settings.db_path,
+            task_id=task.id,
+            stage=self.stage.value,
+            kind=kind,
+            payload=payload,
+        )
 
     @staticmethod
     def _extract_session_id(events: list[dict]) -> str | None:

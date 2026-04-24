@@ -21,6 +21,13 @@ class CodexCliAgent:
     `codex exec --json ...`; resume uses `codex exec resume <thread_id> ...`
     — resume is a subcommand rather than a flag, so the command is assembled
     differently in each branch.
+
+    TODO(PR3.5): stream events via `iter_cli_jsonl` and emit `agent_tool` /
+    `agent_text` / `agent_result` into `task_events`. Codex uses a different
+    JSONL schema (`item.completed` / `turn.completed`, not Claude's
+    `assistant`-with-content-blocks), so the tool-normalizer needs a codex
+    adapter before it can share `_normalize_tool_event` with the claude
+    backend. Deferred to keep this PR focused on claude_cli.
     """
 
     name = "codex_cli"
