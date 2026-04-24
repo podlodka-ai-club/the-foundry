@@ -3,6 +3,7 @@
    приглушённые серо-коричневые тона для хрома. Светлая тема — инверсия. */
 
 :root {
+  color-scheme: dark light;
   /* DARK (default) — тёплая угольная эстетика Codex */
   --bg-0: #1a1816;           /* основной фон */
   --bg-1: #201e1b;           /* панели, карточки */
@@ -51,10 +52,53 @@
   --r-xl: 14px;
 }
 
+/* Автодетект: если система в light и нет ручного override data-theme="dark" */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg-0: #faf8f5;
+    --bg-1: #f4f1eb;
+    --bg-2: #ecebe6;
+    --bg-3: #e0ddd4;
+    --bg-sidebar: #e8e5e0;
+
+    --fg-0: #1c1a17;
+    --fg-1: #4a4640;
+    --fg-2: #7a746b;
+    --fg-3: #a59e93;
+
+    --border: #e0ddd4;
+    --border-soft: #ebe8e2;
+    --border-strong: #cdc8bf;
+
+    --accent: #c96442;
+    --accent-soft: #c9644218;
+    --accent-dim: #9a4a31;
+
+    --success: #4f7d4f;
+    --success-soft: #4f7d4f18;
+    --danger: #a84a3a;
+    --danger-soft: #a84a3a18;
+    --warning: #a8823a;
+    --info: #4a6e8a;
+
+    --running: #c98a2f;
+    --running-soft: #c98a2f18;
+
+    --highlight: #6f4f8a;
+    --highlight-soft: #6f4f8a18;
+
+    --diff-add: #3e7a3e;
+    --diff-del: #9a4a3a;
+
+    --shadow-lg: 0 8px 32px rgba(0,0,0,.08), 0 1px 3px rgba(0,0,0,.06);
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.06);
+  }
+}
+
 [data-theme="light"] {
   --bg-0: #faf8f5;
   --bg-1: #f4f1eb;
-  --bg-2: #ecebe6;  /* ← темнее для заметного hover */
+  --bg-2: #ecebe6;
   --bg-3: #e0ddd4;
   --bg-sidebar: #e8e5e0;
 
