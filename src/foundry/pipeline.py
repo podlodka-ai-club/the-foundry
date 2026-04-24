@@ -6,7 +6,9 @@ import structlog
 from langfuse import observe
 
 from . import observability, state, worktree
+from .agents import AgentSettings, AgentStage
 from .config import Settings
+from .events import stage_span
 from .models import Stage, Task, TaskStatus
 from .stages import agent_implement as agent_implement_stage
 from .stages import agent_plan as agent_plan_stage
@@ -50,30 +52,54 @@ def _process_task(settings: Settings, task: Task) -> Task:
 
     # CONTEXT
     task = _mark(settings, task, stage=Stage.CONTEXT)
-    ctx = context_stage.run(task, settings)
+    with stage_span(settings.db_path, task.id, Stage.CONTEXT.value) as finish:
+        ctx = context_stage.run(task, settings)
+        finish(output={"files": len(ctx.get("files", []))})
     state.append_log(settings.db_path, task.id, Stage.CONTEXT, {"ok": True})
 
     # PLAN
     task = _mark(settings, task, stage=Stage.PLAN)
-    plan = agent_plan_stage.run(task, ctx, wt_path, settings)
+    plan_agent_settings = AgentSettings.from_env(AgentStage.PLAN, db_path=settings.db_path)
+    with stage_span(
+        settings.db_path,
+        task.id,
+        Stage.PLAN.value,
+        input={"title": task.issue_title},
+        agent={"name": plan_agent_settings.backend, "model": plan_agent_settings.model},
+    ) as finish:
+        plan = agent_plan_stage.run(task, ctx, wt_path, settings)
+        finish(output={"summary": plan.get("summary", "")})
     state.append_log(settings.db_path, task.id, Stage.PLAN, {"summary": plan.get("summary", "")})
 
     # IMPLEMENT
     task = _mark(settings, task, stage=Stage.IMPLEMENT)
-    impl_result = agent_implement_stage.run(task, plan, wt_path, settings)
+    impl_agent_settings = AgentSettings.from_env(AgentStage.IMPLEMENT, db_path=settings.db_path)
+    with stage_span(
+        settings.db_path,
+        task.id,
+        Stage.IMPLEMENT.value,
+        input={"title": task.issue_title, "plan_summary": plan.get("summary", "")},
+        agent={"name": impl_agent_settings.backend, "model": impl_agent_settings.model},
+    ) as finish:
+        impl_result = agent_implement_stage.run(task, plan, wt_path, settings)
+        finish(output={"result": impl_result.get("result", "")})
     state.append_log(settings.db_path, task.id, Stage.IMPLEMENT, impl_result)
 
     # VERIFY
     task = _mark(settings, task, stage=Stage.VERIFY)
-    verify_result = verify_stage.run(task, wt_path, settings)
+    with stage_span(settings.db_path, task.id, Stage.VERIFY.value) as finish:
+        verify_result = verify_stage.run(task, wt_path, settings)
+        if not verify_result.get("passed"):
+            raise RuntimeError(f"verify failed: {verify_result}")
+        finish(output={"ok": True})
     state.append_log(settings.db_path, task.id, Stage.VERIFY, verify_result)
-    if not verify_result.get("passed"):
-        raise RuntimeError(f"verify failed: {verify_result}")
 
     # PR
     task = _mark(settings, task, stage=Stage.PR)
-    pr_result = pr_stage.run(task, wt_path, branch_name, settings)
-    task.pr_url = pr_result["pr_url"]
+    with stage_span(settings.db_path, task.id, Stage.PR.value) as finish:
+        pr_result = pr_stage.run(task, wt_path, branch_name, settings)
+        task.pr_url = pr_result["pr_url"]
+        finish(output={"pr_url": pr_result["pr_url"]})
     state.append_log(settings.db_path, task.id, Stage.PR, pr_result)
 
     task = _mark(settings, task, stage=Stage.DONE, status=TaskStatus.DONE)

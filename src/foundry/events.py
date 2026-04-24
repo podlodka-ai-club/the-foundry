@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
+import traceback as _traceback
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterator
 
 from .models import Event
 
@@ -122,3 +124,74 @@ def read_events(
         ]
     finally:
         conn.close()
+
+
+@contextmanager
+def stage_span(
+    db_path: Path,
+    task_id: int,
+    stage: str,
+    *,
+    input: dict[str, Any] | None = None,
+    agent: dict[str, Any] | None = None,
+) -> Iterator[Callable[..., None]]:
+    """Emit stage_started on entry and stage_finished / stage_failed on exit.
+
+    Yields a `finish(output=None, cost_usd=None, tokens_in=None, tokens_out=None)`
+    callback. Calling it is optional — if omitted, stage_finished is still
+    emitted on a clean exit with `output=None`. On exception, stage_failed
+    (with repr(exc) and traceback) is emitted instead, and the exception is
+    re-raised; stage_finished is NOT emitted.
+    """
+    started_payload: dict[str, Any] = {}
+    if input is not None:
+        started_payload["input"] = input
+    if agent is not None:
+        started_payload["agent"] = agent
+    record_event(db_path, task_id, stage, "stage_started", started_payload)
+
+    t0 = time.monotonic()
+    meta: dict[str, Any] = {}
+
+    def finish(
+        output: Any = None,
+        cost_usd: float | None = None,
+        tokens_in: int | None = None,
+        tokens_out: int | None = None,
+    ) -> None:
+        meta["output"] = output
+        meta["cost_usd"] = cost_usd
+        meta["tokens_in"] = tokens_in
+        meta["tokens_out"] = tokens_out
+        meta["_called"] = True
+
+    try:
+        yield finish
+    except Exception as exc:
+        duration_ms = int((time.monotonic() - t0) * 1000)
+        record_event(
+            db_path,
+            task_id,
+            stage,
+            "stage_failed",
+            {
+                "duration_ms": duration_ms,
+                "error": repr(exc),
+                "traceback": _traceback.format_exc(),
+            },
+        )
+        raise
+
+    duration_ms = int((time.monotonic() - t0) * 1000)
+    finished_payload: dict[str, Any] = {"duration_ms": duration_ms}
+    if meta.get("_called"):
+        # Only include optional fields that were actually set to non-None.
+        if meta.get("output") is not None:
+            finished_payload["output"] = meta["output"]
+        if meta.get("cost_usd") is not None:
+            finished_payload["cost_usd"] = meta["cost_usd"]
+        if meta.get("tokens_in") is not None:
+            finished_payload["tokens_in"] = meta["tokens_in"]
+        if meta.get("tokens_out") is not None:
+            finished_payload["tokens_out"] = meta["tokens_out"]
+    record_event(db_path, task_id, stage, "stage_finished", finished_payload)

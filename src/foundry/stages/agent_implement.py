@@ -17,7 +17,7 @@ def run(task: Task, plan: dict, worktree_path: Path, settings: Settings) -> dict
     `agent_plan` (key `plan` with full text) or from the old stub (key
     `steps`); both are handled.
     """
-    agent = make_agent(AgentSettings.from_env(AgentStage.IMPLEMENT))
+    agent = make_agent(AgentSettings.from_env(AgentStage.IMPLEMENT, db_path=settings.db_path))
     agent_task = AgentTask(
         id=task.id or task.issue_number,
         title=task.issue_title,

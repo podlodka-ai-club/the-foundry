@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from foundry import pipeline, state
 from foundry.config import Settings
+from foundry.events import read_events
 from foundry.models import Stage, Task, TaskStatus
 
 
@@ -56,6 +57,16 @@ def test_run_once_happy_path(tmp_path: Path) -> None:
     assert final.current_stage == Stage.DONE
     assert final.pr_url == "https://example/pr/1"
 
+    # Every per-task stage must frame its work with stage_started → stage_finished.
+    events = read_events(settings.db_path, task_id=final.id)
+    per_stage_kinds: dict[str, list[str]] = {}
+    for ev in events:
+        per_stage_kinds.setdefault(ev.stage, []).append(ev.kind)
+    for stage_name in ("context", "plan", "implement", "verify", "pr"):
+        assert stage_name in per_stage_kinds, f"no events for stage {stage_name}"
+        assert per_stage_kinds[stage_name][0] == "stage_started"
+        assert per_stage_kinds[stage_name][-1] == "stage_finished"
+
 
 def test_run_once_pre_implement_failure_requeues(tmp_path: Path) -> None:
     """Network/infra flakes before implement should re-queue, not terminally fail."""
@@ -96,3 +107,10 @@ def test_run_once_stage_failure_marks_failed(tmp_path: Path) -> None:
     assert final.status == TaskStatus.FAILED
     assert final.current_stage == Stage.FAILED
     assert final.pr_url is None
+
+    # The failing stage must have emitted stage_failed (and not stage_finished).
+    events = read_events(settings.db_path, task_id=final.id)
+    implement_kinds = [e.kind for e in events if e.stage == "implement"]
+    assert "stage_started" in implement_kinds
+    assert "stage_failed" in implement_kinds
+    assert "stage_finished" not in implement_kinds

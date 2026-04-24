@@ -16,7 +16,7 @@ def run(task: Task, ctx: dict, worktree_path: Path, settings: Settings) -> dict:
     Returns {"plan": <full agent response>, "summary": <first line>}.
     `ctx` is currently unused (context stage is still a stub).
     """
-    agent = make_agent(AgentSettings.from_env(AgentStage.PLAN))
+    agent = make_agent(AgentSettings.from_env(AgentStage.PLAN, db_path=settings.db_path))
     agent_task = AgentTask(
         id=task.id or task.issue_number,
         title=task.issue_title,

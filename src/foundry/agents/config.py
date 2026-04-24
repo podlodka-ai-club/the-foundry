@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -29,9 +30,10 @@ class AgentSettings:
     timeout_sec: int = 600
     max_turns: int = 30
     model: str = "haiku"
+    db_path: Path | None = None
 
     @classmethod
-    def from_env(cls, stage: AgentStage) -> AgentSettings:
+    def from_env(cls, stage: AgentStage, db_path: Path | None = None) -> AgentSettings:
         """Load settings for `stage` from environment.
 
         Per-stage env vars (e.g. `AGENT_PLAN_MODEL`) win over global ones
@@ -54,4 +56,5 @@ class AgentSettings:
             timeout_sec=timeout,
             max_turns=max_turns,
             model=model,
+            db_path=db_path,
         )
