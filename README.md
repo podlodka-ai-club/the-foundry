@@ -2,46 +2,39 @@
 
 Проект в рамках **Hacker Sprint #1: Фабрика фичей** (https://www.notion.so/Hacker-Sprint-1-33f2db4c860e8064a657e199b4578f66?source=copy_link).
 
+End-to-end pipeline: GitHub Issue → CONTEXT → PLAN → IMPLEMENT (через aider) → VERIFY → PR.
+
 ## Docs
 Документы, логи встреч и прочие текстовые артефакты храним в папке `/docs`.
 
-## Что нужно сделать вручную до первого прогона (чтобы настроить skeleton pipeline)
+## Что нужно сделать вручную до первого прогона
 1. `brew install uv gh`
 2. `gh auth login` — токен с правом `repo`.
-3. Создать на GitHub sandbox-репо (например `the-foundry-sandbox`, либо использовать существующий репо https://github.com/Zhurbin/the-foundry-sandbox), лейбл `agent-task`, 1–2 issue.
-4. `cp .env.example .env` и заполнить `SOURCE_REPO`, `TARGET_REPO`.
-5. `uv sync && uv run foundry run` — ожидаемый результат: в sandbox появился PR с новой строкой в README.
+3. Создать на GitHub sandbox-репо (например, `the-foundry-sandbox`), лейбл `agent-task`, 1–2 issue.
+4. `cp .env.sample .env`, заполнить `SOURCE_REPO`, `TARGET_REPO` и API-ключ выбранного `CODING_LLM`.
+5. `uv sync && uv run foundry run` — ожидаемый результат: aider обработает каждый issue в worktree и в sandbox появится PR.
 
+## Coding agent
 
-## Часть работы с Aider
+Стадия IMPLEMENT использует [aider](https://aider.chat/) с одним из LLM-провайдеров:
 
-Агент автоматически изменяет файлы в директории `code/` без подтверждения.
-
-**Перед запуском:**
-- Убедитесь, что `code/` под git контролем
-- Проверьте задачу в `agent/tasks/<task_id>/<task_id>_task.md`
-- После выполнения проверьте изменения: `git diff code/`
-
-### Сборка образа проекта
-
-```bash
-make build
+```
+CODING_LLM=DEEPSEEK | ANTHROPIC | CHATGPT
+DEEPSEEK_API_KEY=...        # или ANTHROPIC_API_KEY / OPENAI_API_KEY
+DEEPSEEK_MODEL_NAME=...     # опционально, переопределяет дефолт провайдера
+AIDER_TIMEOUT_SECONDS=600
 ```
 
-### Запуск агента
+Aider запускается с `--yes-always --no-git`: автоконфирмит изменения файлов, но git-операции остаются за PR-стадией pipeline.
 
-**Создание новой задачи:**
-```bash
-make runagent task=TF-2 prompt="Напиши скрипт hello world"
+Модуль `src/foundry/coding_agent/` содержит:
+- `runner.py` — функция `run_aider(...)` для вызова aider в worktree.
+- `providers/` — абстракция LLM-провайдеров (DeepSeek/Anthropic/ChatGPT) c фабрикой `LLMProviderFactory.create_from_settings(settings)`. Новый провайдер добавляется наследованием `BaseLLMProvider` и регистрацией в `LLMProviderFactory`.
+
+## Команды
+
 ```
-
-**Выполнение существующей задачи:**
-```bash
-make runagent task=TF-1
+make run          # один прогон pipeline
+make test         # все тесты
+make test-unit    # быстрые unit-тесты
 ```
-
-**Примечание:** Prompt передается через переменные окружения для защиты от shell-инъекций.
-Можно безопасно использовать кавычки и специальные символы.
-
-Подробнее: [README.AGENT.md / Безопасность](README.AGENT.md#безопасность)
-

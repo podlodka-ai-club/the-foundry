@@ -2,35 +2,49 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ..coding_agent import LLMProviderFactory, run_aider
 from ..config import Settings
 from ..models import Task
 
 
-class UnsupportedAction(ValueError):
-    pass
-
-
 def run(task: Task, plan: dict, worktree_path: Path, settings: Settings) -> dict:
-    """STUB: applies hardcoded plan steps directly on the filesystem.
+    """Запускает aider в worktree через выбранного провайдера.
 
-    Day 3+ will delegate this to Aider / Claude Code SDK. The `plan` shape is
-    kept compatible so that drop-in replacement is mechanical.
+    Plan приходит из ``plan.run`` в формате ``{"steps": [{"kind": "aider_run", ...}]}``.
+    Aider сам определяет contextual набор файлов и применяет изменения; git-операции
+    остаются за PR-стадией (флаг ``--no-git``).
     """
-    applied: list[dict] = []
-    for step in plan.get("steps", []):
-        action = step.get("action")
-        target = worktree_path / step["file"]
-        if action == "append_line":
-            line = step["line"].rstrip("\n") + "\n"
-            needs_leading_newline = False
-            if target.exists() and target.stat().st_size > 0:
-                with target.open("rb") as r:
-                    r.seek(-1, 2)
-                    needs_leading_newline = r.read(1) != b"\n"
-            payload = ("\n" if needs_leading_newline else "") + line
-            with target.open("a", encoding="utf-8") as f:
-                f.write(payload)
-            applied.append({"file": step["file"], "action": action, "bytes": len(payload)})
-        else:
-            raise UnsupportedAction(f"action not supported in skeleton: {action!r}")
-    return {"applied": applied}
+    steps = plan.get("steps", [])
+    if not steps:
+        raise RuntimeError("implement: empty plan")
+    step = steps[0]
+    if step.get("kind") != "aider_run":
+        raise RuntimeError(f"implement: unsupported step kind {step.get('kind')!r}")
+
+    provider = LLMProviderFactory.create_from_settings(settings)
+    result = run_aider(
+        worktree_path=worktree_path,
+        task_text=step["task_text"],
+        files=step.get("files", []),
+        provider=provider,
+        timeout_seconds=settings.aider_timeout_seconds,
+    )
+
+    renamed = provider.post_process_files(worktree_path)
+
+    if not result.ok:
+        # Урезаем хвост вывода, чтобы поднять exception читаемого размера.
+        tail = (result.stderr or result.stdout)[-2048:]
+        raise RuntimeError(
+            f"aider failed (rc={result.returncode}, provider={provider.get_provider_name()}): {tail}"
+        )
+
+    return {
+        "ok": True,
+        "provider": provider.get_provider_name(),
+        "model": provider.get_model_name(),
+        "returncode": result.returncode,
+        "stdout_tail": result.stdout[-4096:],
+        "renamed_files": renamed,
+        "duration_seconds": result.duration_seconds,
+    }

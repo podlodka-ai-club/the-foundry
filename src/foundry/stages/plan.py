@@ -5,13 +5,18 @@ from ..models import Task
 
 
 def run(task: Task, ctx: dict, settings: Settings) -> dict:
-    """STUB: returns a hardcoded single-step plan. Real LLM planner lands Day 3+."""
+    """Passthrough-планировщик: aider сам планирует и применяет изменения.
+
+    Возвращает один шаг ``aider_run``, который IMPLEMENT передаст в run_aider.
+    Если позже захотим делать отдельный LLM-вызов для разбиения задачи —
+    место для этого здесь.
+    """
     return {
         "steps": [
             {
-                "file": "README.md",
-                "action": "append_line",
-                "line": f"foundry-bot: task #{task.issue_number} — {task.issue_title}",
+                "kind": "aider_run",
+                "task_text": ctx["task_text"],
+                "files": ctx["files"],
             }
         ]
     }

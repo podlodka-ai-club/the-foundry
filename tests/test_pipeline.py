@@ -16,6 +16,8 @@ def _settings(tmp_path: Path) -> Settings:
         worktree_root=tmp_path / "worktrees",
         db_path=tmp_path / "foundry.sqlite",
         poll_interval_seconds=30,
+        coding_llm="DEEPSEEK",
+        deepseek_api_key="sk-test",
     )
 
 
@@ -41,7 +43,18 @@ def test_run_once_happy_path(tmp_path: Path) -> None:
              return_value=(tmp_path / "wt", "foundry/task-1"),
          ), \
          patch("foundry.pipeline.worktree.cleanup_worktree"), \
-         patch("foundry.pipeline.implement_stage.run", return_value={"applied": []}), \
+         patch(
+             "foundry.pipeline.context_stage.run",
+             return_value={"task_text": "t", "files": [], "worktree_path": str(tmp_path / "wt")},
+         ), \
+         patch(
+             "foundry.pipeline.plan_stage.run",
+             return_value={"steps": [{"kind": "aider_run", "task_text": "t", "files": []}]},
+         ), \
+         patch(
+             "foundry.pipeline.implement_stage.run",
+             return_value={"ok": True, "provider": "DeepSeek", "renamed_files": []},
+         ), \
          patch("foundry.pipeline.verify_stage.run", return_value={"passed": True}), \
          patch(
              "foundry.pipeline.pr_stage.run",
@@ -87,6 +100,14 @@ def test_run_once_stage_failure_marks_failed(tmp_path: Path) -> None:
              return_value=(tmp_path / "wt", "foundry/task-1"),
          ), \
          patch("foundry.pipeline.worktree.cleanup_worktree"), \
+         patch(
+             "foundry.pipeline.context_stage.run",
+             return_value={"task_text": "t", "files": [], "worktree_path": str(tmp_path / "wt")},
+         ), \
+         patch(
+             "foundry.pipeline.plan_stage.run",
+             return_value={"steps": [{"kind": "aider_run", "task_text": "t", "files": []}]},
+         ), \
          patch("foundry.pipeline.implement_stage.run", side_effect=RuntimeError("boom")):
         processed = pipeline.run_once(settings)
 

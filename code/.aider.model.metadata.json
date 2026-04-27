@@ -1,9 +1,0 @@
-{
-  "deepseek/deepseek-chat": {
-    "extra_params": {
-      "thinking": {
-        "type": "disabled"
-      }
-    }
-  }
-}
