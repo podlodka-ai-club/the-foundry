@@ -26,3 +26,15 @@ agent/tasks
 !agent/tasks/TF-2/TF-2_task.md
 !agent/tasks/TF-3/TF-3_task.md
 !agent/tasks/TF-2/TF-2_log.md
+
+
+.env
+data/
+worktrees/
+__pycache__/
+.venv/
+*.egg-info/
+.pytest_cache/
+*.pyc
+.claude
+

@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>The Foundry — Skeleton pipeline</title>
+<style>
+  :root {
+    --bg0: #0f1220;
+    --bg1: #1a1f3a;
+    --panel: rgba(255,255,255,0.04);
+    --panel-border: rgba(255,255,255,0.08);
+    --text: #e7ecf3;
+    --muted: #9aa3b2;
+    --accent: #7aa2ff;
+    --real: #4ade80;
+    --stub: #fbbf24;
+    --future: #f87171;
+    --infra: #a78bfa;
+    --code-bg: #0b0e1a;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", sans-serif;
+    color: var(--text);
+    background: radial-gradient(ellipse at top left, #23284a 0%, var(--bg0) 60%);
+    overflow: hidden;
+  }
+  code, pre, .mono { font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace; }
+
+  .deck { width: 100vw; height: 100vh; position: relative; }
+  .slide {
+    position: absolute; inset: 0;
+    padding: 4vh 6vw;
+    display: none;
+    flex-direction: column;
+    justify-content: flex-start;
+    animation: fade .25s ease-out;
+  }
+  .slide.active { display: flex; }
+  @keyframes fade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  h1 { font-size: clamp(2rem, 4.2vw, 3.6rem); margin: 0 0 .4em; }
+  h2 { font-size: clamp(1.4rem, 2.4vw, 2.2rem); margin: 0 0 .6em; color: var(--accent); }
+  h3 { font-size: 1.1rem; margin: 0 0 .4em; }
+  p, li { font-size: clamp(.9rem, 1.15vw, 1.1rem); line-height: 1.55; color: var(--text); }
+  .muted { color: var(--muted); }
+  .small { font-size: .85rem; }
+
+  /* nav */
+  .nav {
+    position: fixed; bottom: 1.4vh; left: 0; right: 0;
+    display: flex; justify-content: center; align-items: center; gap: 14px;
+    pointer-events: none;
+  }
+  .nav button {
+    pointer-events: auto;
+    background: var(--panel); border: 1px solid var(--panel-border);
+    color: var(--text); border-radius: 999px;
+    width: 38px; height: 38px; font-size: 1.1rem; cursor: pointer;
+    transition: background .15s;
+  }
+  .nav button:hover { background: rgba(255,255,255,0.1); }
+  .counter {
+    pointer-events: auto;
+    padding: 6px 14px; border-radius: 999px;
+    background: var(--panel); border: 1px solid var(--panel-border);
+    font-family: monospace; font-size: .9rem; color: var(--muted);
+  }
+
+  /* legend */
+  .legend { display: flex; gap: 1.5rem; margin-top: 1rem; flex-wrap: wrap; }
+  .legend-item { display: flex; align-items: center; gap: .5rem; font-size: .9rem; color: var(--muted); }
+  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .dot.real { background: var(--real); }
+  .dot.stub { background: var(--stub); }
+  .dot.future { background: var(--future); }
+  .dot.infra { background: var(--infra); }
+
+  /* pipeline chain */
+  .chain {
+    display: flex; align-items: center; justify-content: center;
+    gap: .4rem; flex-wrap: wrap; margin: 2rem 0 1rem;
+  }
+  .stage {
+    padding: .8rem 1rem; border-radius: 12px;
+    border: 1px solid var(--panel-border);
+    background: var(--panel);
+    min-width: 110px; text-align: center;
+    position: relative;
+  }
+  .stage .name { font-weight: 600; font-size: 1rem; }
+  .stage .file { font-family: monospace; font-size: .72rem; color: var(--muted); margin-top: .2rem; }
+  .stage .tag {
+    position: absolute; top: -10px; right: -10px;
+    font-size: .65rem; padding: 2px 8px; border-radius: 999px;
+    font-weight: 700; letter-spacing: .04em;
+  }
+  .stage.real .tag { background: var(--real); color: #0a2a16; }
+  .stage.stub .tag { background: var(--stub); color: #3d2c05; }
+  .stage.done { background: linear-gradient(135deg, #1e293b, #0f172a); }
+  .stage.failed { background: linear-gradient(135deg, #3b1f2a, #1f1017); border-color: #5a2a36; }
+  .arrow { color: var(--muted); font-size: 1.4rem; }
+
+  /* cards */
+  .grid { display: grid; gap: 1rem; margin-top: 1rem; }
+  .grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
+  .grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+  .card {
+    background: var(--panel); border: 1px solid var(--panel-border);
+    border-radius: 14px; padding: 1rem 1.2rem;
+  }
+  .card h3 { color: var(--accent); font-size: 1rem; }
+  .card .path { font-family: monospace; font-size: .78rem; color: var(--muted); word-break: break-all; }
+  .card p { font-size: .92rem; margin: .4rem 0 0; }
+  .card.future { border-color: rgba(248,113,113,0.35); }
+  .card.future h3 { color: var(--future); }
+  .card.infra { border-color: rgba(167,139,250,0.3); }
+  .card.infra h3 { color: var(--infra); }
+
+  /* table */
+  table { width: 100%; border-collapse: collapse; margin-top: 1rem; font-size: .92rem; }
+  th, td { text-align: left; padding: .6rem .8rem; border-bottom: 1px solid var(--panel-border); }
+  th { color: var(--muted); font-weight: 500; font-size: .82rem; text-transform: uppercase; letter-spacing: .05em; }
+  td.mono { font-family: monospace; color: var(--muted); }
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 999px;
+    font-size: .7rem; font-weight: 700;
+  }
+  .badge.real { background: var(--real); color: #0a2a16; }
+  .badge.stub { background: var(--stub); color: #3d2c05; }
+
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .kicker { color: var(--muted); text-transform: uppercase; font-size: .8rem; letter-spacing: .1em; margin-bottom: .3em; }
+
+  ul { margin: .2em 0; padding-left: 1.2em; }
+  li { margin: .25em 0; }
+
+  .callout {
+    margin-top: 1rem; padding: .8rem 1rem;
+    border-left: 3px solid var(--accent);
+    background: rgba(122,162,255,0.08);
+    border-radius: 6px; font-size: .9rem;
+  }
+  .callout.warn { border-left-color: var(--stub); background: rgba(251,191,36,0.08); }
+</style>
+</head>
+<body>
+<div class="deck" id="deck">
+
+  <!-- 1. Title -->
+  <section class="slide active">
+    <div style="margin: auto; text-align: center;">
+      <div class="kicker">Архитектура · features/skeleton · 2026-04-22</div>
+      <h1>The Foundry</h1>
+      <h2 style="color: var(--muted); font-weight: 400;">Skeleton pipeline — структурная схема</h2>
+      <p class="muted" style="max-width: 60ch; margin: 1.5em auto 0;">
+        End-to-end каркас оркестратора: GitHub Issue → worktree → stub-план → append-line → stub-verify → реальный PR.
+        Без LLM. Цель — проверить каркас до того, как навешивать интеллект.
+      </p>
+      <div class="legend" style="justify-content: center;">
+        <span class="legend-item"><span class="dot real"></span> реальная стадия</span>
+        <span class="legend-item"><span class="dot stub"></span> заглушка (stub)</span>
+        <span class="legend-item"><span class="dot infra"></span> инфраструктура</span>
+        <span class="legend-item"><span class="dot future"></span> будущие изменения</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. FSM chain -->
+  <section class="slide">
+    <div class="kicker">Слайд 2</div>
+    <h2>Идея пайплайна — конечный автомат</h2>
+    <p class="muted">Каждая задача — это <span class="mono">Task</span>, которая проходит через стадии по порядку. Состояние и <span class="mono">current_stage</span> пишутся в SQLite после каждого шага — можно возобновиться с падения и не потерять контекст.</p>
+
+    <div class="chain">
+      <div class="stage real"><div class="name">Fetch</div><div class="file">stages/fetch.py</div><div class="tag">REAL</div></div>
+      <span class="arrow">&rarr;</span>
+      <div class="stage stub"><div class="name">Context</div><div class="file">stages/context.py</div><div class="tag">STUB</div></div>
+      <span class="arrow">&rarr;</span>
+      <div class="stage stub"><div class="name">Plan</div><div class="file">stages/plan.py</div><div class="tag">STUB</div></div>
+      <span class="arrow">&rarr;</span>
+      <div class="stage stub"><div class="name">Implement</div><div class="file">stages/implement.py</div><div class="tag">STUB</div></div>
+      <span class="arrow">&rarr;</span>
+      <div class="stage stub"><div class="name">Verify</div><div class="file">stages/verify.py</div><div class="tag">STUB</div></div>
+      <span class="arrow">&rarr;</span>
+      <div class="stage real"><div class="name">PR</div><div class="file">stages/pr.py</div><div class="tag">REAL</div></div>
+      <span class="arrow">&rarr;</span>
+      <div class="stage done"><div class="name">Done</div><div class="file">status=done</div></div>
+    </div>
+
+    <div class="grid cols-2" style="margin-top: 1.5rem;">
+      <div class="card">
+        <h3>Task — что проходит через пайплайн</h3>
+        <p><span class="mono">id, issue_number, issue_title, issue_body, status, current_stage, attempts, worktree_path, branch_name, pr_url, logs_json</span></p>
+      </div>
+      <div class="card">
+        <h3>Почему SQLite</h3>
+        <p>Персистентность между стадиями &rarr; ретраи, возобновление с падения, основа для observability. Одна таблица <span class="mono">tasks</span>, стdlib-only, без ORM.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. Entry point -->
+  <section class="slide">
+    <div class="kicker">Слайд 3</div>
+    <h2>Entry point и оркестрация</h2>
+    <div class="grid cols-3">
+      <div class="card">
+        <h3>CLI — точка входа</h3>
+        <div class="path"><a href="../../src/foundry/cli.py">src/foundry/cli.py</a></div>
+        <p>Три команды через click: <span class="mono">foundry run</span> — однократный прогон, <span class="mono">status</span> — таблица задач из БД, <span class="mono">reset &lt;id&gt;</span> — сбросить статус для отладки.</p>
+      </div>
+      <div class="card">
+        <h3>Pipeline — FSM</h3>
+        <div class="path"><a href="../../src/foundry/pipeline.py">src/foundry/pipeline.py</a></div>
+        <p><span class="mono">run_once()</span> &rarr; <span class="mono">_process_task()</span>. После каждой стадии — <span class="mono">upsert_task</span> + <span class="mono">append_log</span>. На падении: FETCH/CONTEXT/PLAN &rarr; re-queue; IMPLEMENT/VERIFY/PR &rarr; FAILED.</p>
+      </div>
+      <div class="card">
+        <h3>Config — настройки</h3>
+        <div class="path"><a href="../../src/foundry/config.py">src/foundry/config.py</a></div>
+        <p>Dataclass <span class="mono">Settings</span>, читает <span class="mono">.env</span>: <span class="mono">SOURCE_REPO</span>, <span class="mono">TARGET_REPO</span>, <span class="mono">ISSUE_LABEL</span>, <span class="mono">WORKTREE_ROOT</span>, <span class="mono">DB_PATH</span>, <span class="mono">GITHUB_TOKEN</span>.</p>
+      </div>
+    </div>
+
+    <div class="callout">
+      <strong>Ключевое свойство FSM:</strong> стадия сохраняется в БД <em>до</em> её запуска. Упали посреди — в БД видна точка падения, задача не «потерялась», лог-трейсбэк сохранён в <span class="mono">logs_json</span>.
+    </div>
+  </section>
+
+  <!-- 4. Stages table -->
+  <section class="slide">
+    <div class="kicker">Слайд 4</div>
+    <h2>Стадии — кто что делает сейчас</h2>
+    <table>
+      <thead>
+        <tr><th>Стадия</th><th>Файл</th><th>Статус</th><th>Что делает</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Fetch</strong></td>
+          <td class="mono"><a href="../../src/foundry/stages/fetch.py">stages/fetch.py</a></td>
+          <td><span class="badge real">REAL</span></td>
+          <td><span class="mono">gh issue list --label agent-task --json ...</span> &rarr; upsert в SQLite. Возвращает pending-задачи.</td>
+        </tr>
+        <tr>
+          <td><strong>Context</strong></td>
+          <td class="mono"><a href="../../src/foundry/stages/context.py">stages/context.py</a></td>
+          <td><span class="badge stub">STUB</span></td>
+          <td>Возвращает <span class="mono">{"files": []}</span>. Интерфейс зарезервирован под реальный контекст.</td>
+        </tr>
+        <tr>
+          <td><strong>Plan</strong></td>
+          <td class="mono"><a href="../../src/foundry/stages/plan.py">stages/plan.py</a></td>
+          <td><span class="badge stub">STUB</span></td>
+          <td>Хардкод-план: один step <span class="mono">append_line</span> в <span class="mono">README.md</span>. Формат JSON совместим с будущим LLM.</td>
+        </tr>
+        <tr>
+          <td><strong>Implement</strong></td>
+          <td class="mono"><a href="../../src/foundry/stages/implement.py">stages/implement.py</a></td>
+          <td><span class="badge stub">STUB</span></td>
+          <td>Применяет план напрямую через FS: дописывает строку в файл worktree. Никакого Aider.</td>
+        </tr>
+        <tr>
+          <td><strong>Verify</strong></td>
+          <td class="mono"><a href="../../src/foundry/stages/verify.py">stages/verify.py</a></td>
+          <td><span class="badge stub">STUB</span></td>
+          <td><span class="mono">echo ok</span> в worktree, возвращает <span class="mono">{"passed": true}</span>.</td>
+        </tr>
+        <tr>
+          <td><strong>PR</strong></td>
+          <td class="mono"><a href="../../src/foundry/stages/pr.py">stages/pr.py</a></td>
+          <td><span class="badge real">REAL</span></td>
+          <td><span class="mono">git add/commit/push</span> + <span class="mono">gh pr create</span> + закрытие исходного issue с комментарием.</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="small muted" style="margin-top: 1rem;">Реальные стадии — <strong>Fetch</strong> и <strong>PR</strong>. Весь интеллект между ними — заглушки, которые будут заменены в следующих фазах.</p>
+  </section>
+
+  <!-- 5. Infrastructure -->
+  <section class="slide">
+    <div class="kicker">Слайд 5</div>
+    <h2>Инфраструктура — общие модули</h2>
+    <div class="grid cols-2">
+      <div class="card infra">
+        <h3>state.py — персистентность</h3>
+        <div class="path"><a href="../../src/foundry/state.py">src/foundry/state.py</a></div>
+        <p>SQLite CRUD: <span class="mono">init_db</span>, <span class="mono">upsert_task</span>, <span class="mono">get_task_by_issue</span>, <span class="mono">list_tasks</span>, <span class="mono">append_log</span>. Одна таблица <span class="mono">tasks</span>, UNIQUE по <span class="mono">(repo, issue_number)</span>.</p>
+      </div>
+      <div class="card infra">
+        <h3>models.py — типы</h3>
+        <div class="path"><a href="../../src/foundry/models.py">src/foundry/models.py</a></div>
+        <p><span class="mono">Stage</span> enum (FETCH/CONTEXT/PLAN/IMPLEMENT/VERIFY/PR/DONE/FAILED), <span class="mono">TaskStatus</span> enum (pending/running/done/failed), dataclass <span class="mono">Task</span>.</p>
+      </div>
+      <div class="card infra">
+        <h3>shell.py — subprocess-обёртка</h3>
+        <div class="path"><a href="../../src/foundry/shell.py">src/foundry/shell.py</a></div>
+        <p>Одна функция <span class="mono">run(cmd, cwd, check, timeout)</span>. Используется для <span class="mono">git</span>, <span class="mono">gh</span>, verify-команд. <span class="mono">ShellError</span> с stdout/stderr при падении.</p>
+      </div>
+      <div class="card infra">
+        <h3>worktree.py — изоляция</h3>
+        <div class="path"><a href="../../src/foundry/worktree.py">src/foundry/worktree.py</a></div>
+        <p><span class="mono">ensure_base_repo</span> (клонирует в <span class="mono">worktrees/_base</span>), <span class="mono">create_worktree</span> (ветка <span class="mono">foundry/task-&lt;id&gt;</span>), <span class="mono">cleanup_worktree</span>. Для параллельности и чистоты основного чекаута.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6. Future changes: Days 3-4 -->
+  <section class="slide">
+    <div class="kicker">Слайд 6 · Дни 3–4</div>
+    <h2>Подключаем LLM — что меняется</h2>
+    <p class="muted">По драфту: «берём готовый coding-агент (Aider / Claude Code SDK) как кодовый движок». Интерфейсы уже совместимы — замена механическая.</p>
+
+    <div class="chain">
+      <div class="stage stub" style="opacity: .35"><div class="name">Fetch</div></div>
+      <span class="arrow">&rarr;</span>
+      <div class="stage" style="border-color: var(--future); box-shadow: 0 0 20px rgba(248,113,113,0.3);"><div class="name">Context</div><div class="file">grep / semantic</div></div>
+      <span class="arrow">&rarr;</span>
+      <div class="stage" style="border-color: var(--future); box-shadow: 0 0 20px rgba(248,113,113,0.3);"><div class="name">Plan</div><div class="file">LLM → JSON</div></div>
+      <span class="arrow">&rarr;</span>
+      <div class="stage" style="border-color: var(--future); box-shadow: 0 0 20px rgba(248,113,113,0.3);"><div class="name">Implement</div><div class="file">Aider / Claude SDK</div></div>
+      <span class="arrow">&rarr;</span>
+      <div class="stage stub" style="opacity: .35"><div class="name">Verify</div></div>
+      <span class="arrow">&rarr;</span>
+      <div class="stage real" style="opacity: .35"><div class="name">PR</div></div>
+    </div>
+
+    <div class="grid cols-2" style="margin-top: 1rem;">
+      <div class="card future">
+        <h3>stages/context.py</h3>
+        <p>Поиск релевантных файлов по путям из задачи, <span class="mono">grep</span>, семантический поиск. От простого к сложному.</p>
+      </div>
+      <div class="card future">
+        <h3>stages/plan.py</h3>
+        <p>Промпт: задача + контекст &rarr; структурированный JSON (какие файлы, какие изменения, какие тесты). Модель посильнее — Claude Sonnet 4.5 / GPT-5 / Gemini 2.5 Pro.</p>
+      </div>
+      <div class="card future">
+        <h3>stages/implement.py</h3>
+        <p>Вместо ручного FS-append: передача плана в Aider (python API) или Claude Code SDK. Патчи применяются тем же coding-агентом, <strong>не своим tool use</strong>.</p>
+      </div>
+      <div class="card future">
+        <h3>pyproject.toml</h3>
+        <p>Новые зависимости: <span class="mono">anthropic</span> (или <span class="mono">aider-chat</span>), <span class="mono">openai</span> опц., ключи в <span class="mono">.env</span>.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7. Days 5-6: Verify + retry -->
+  <section class="slide">
+    <div class="kicker">Слайд 7 · Дни 5–6</div>
+    <h2>Реальная верификация + retry-loop</h2>
+    <p class="muted">Замыкаем петлю качества: если verify упал — лог ошибок + текущий дифф возвращаются в implement. Лимит 3 попытки.</p>
+
+    <div class="chain" style="margin-top: 1.5rem;">
+      <div class="stage stub" style="opacity: .35"><div class="name">Plan</div></div>
+      <span class="arrow">&rarr;</span>
+      <div class="stage" style="border-color: var(--future);"><div class="name">Implement</div><div class="file">retry &le; 3</div></div>
+      <span class="arrow">&#8644;</span>
+      <div class="stage" style="border-color: var(--future); box-shadow: 0 0 20px rgba(248,113,113,0.3);"><div class="name">Verify</div><div class="file">pytest/ruff/mypy</div></div>
+      <span class="arrow">&rarr;</span>
+      <div class="stage real" style="opacity: .35"><div class="name">PR</div></div>
+    </div>
+    <p class="small muted" style="text-align: center; margin-top: .3em;">&#8644; — на провале verify дифф + stderr возвращаются в implement для новой попытки</p>
+
+    <div class="grid cols-2" style="margin-top: 1.5rem;">
+      <div class="card future">
+        <h3>stages/verify.py</h3>
+        <p>Замена <span class="mono">echo ok</span> на реальные <span class="mono">pytest</span>, <span class="mono">ruff</span>, <span class="mono">mypy</span>, билд. Таймауты, парсинг вывода, отформатированный отчёт.</p>
+      </div>
+      <div class="card future">
+        <h3>pipeline.py</h3>
+        <p>Ретрай-цикл в <span class="mono">_process_task</span>: на упавшем verify &mdash; обратно в implement с фидбэком (stderr + diff). Лимит 3, счётчик в <span class="mono">task.attempts</span>.</p>
+      </div>
+      <div class="card future">
+        <h3>models.py</h3>
+        <p>Возможно — отдельный счётчик ретраев по стадии (verify_attempts) или подтаблица попыток.</p>
+      </div>
+      <div class="card future">
+        <h3>(опц.) Docker sandbox</h3>
+        <p>Контейнер с окружением целевого репо, примонтированный worktree. Альтернатива — subprocess с таймаутом (проще, годится для доверенного репо).</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 8. Days 8-14 -->
+  <section class="slide">
+    <div class="kicker">Слайд 8 · Дни 8–14</div>
+    <h2>Опциональный блок + демо</h2>
+    <p class="muted">Рекомендация из драфта: <strong>Observability (Langfuse) + Agentic code review</strong>. Первое — дешёвое, второе — содержательная фича.</p>
+
+    <div class="grid cols-2">
+      <div class="card future">
+        <h3>stages/review.py (новый)</h3>
+        <p>Отдельный агент-ревьюер перед PR: читает дифф, возвращает verdict (approve / request_changes + комментарии). Замыкает петлю качества.</p>
+      </div>
+      <div class="card future">
+        <h3>observability.py (новый)</h3>
+        <p>Обёртки над LLM-вызовами &rarr; Langfuse (self-hosted, docker-compose). Промпты, токены, стоимость — всё видно на дашборде.</p>
+      </div>
+      <div class="card future">
+        <h3>cli.py</h3>
+        <p>Возможно новая команда <span class="mono">foundry watch</span> — poll-демон вместо однократного <span class="mono">run</span>. Опрос каждые 30 сек.</p>
+      </div>
+      <div class="card future">
+        <h3>Web-дашборд (День 13–14)</h3>
+        <p>Отдельный модуль, читает ту же SQLite. Список задач, статус, PR-ссылки, логи по стадиям. «Смотрится мощно на демо» &mdash; цитата из драфта.</p>
+      </div>
+    </div>
+
+    <div class="callout">
+      <strong>День 7 — контрольная точка.</strong> К этому моменту end-to-end должен работать на реальной задаче. Если нет &mdash; всё после урезается в пользу доведения MVP.
+    </div>
+  </section>
+
+  <!-- 9. What we do NOT do -->
+  <section class="slide">
+    <div class="kicker">Слайд 9</div>
+    <h2>Что НЕ делаем в skeleton</h2>
+    <p class="muted">Осознанные ограничения текущей фазы — чтобы не размазаться.</p>
+    <div class="grid cols-2" style="margin-top: 1rem;">
+      <div class="card">
+        <h3>Нет в skeleton</h3>
+        <ul>
+          <li>LLM / Aider / Claude API &mdash; <em>только заглушки</em></li>
+          <li>Реальной верификации (ruff/pytest/mypy)</li>
+          <li>Retry loop</li>
+          <li>Poll-демона &mdash; руками <span class="mono">foundry run</span></li>
+          <li>Docker sandbox</li>
+          <li>Langfuse / observability</li>
+          <li>Веб-UI</li>
+          <li>Merge conflicts, code review, декомпозиции</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Что требуется вручную до первого прогона</h3>
+        <ol>
+          <li><span class="mono">brew install uv gh</span></li>
+          <li><span class="mono">gh auth login</span> (право <span class="mono">repo</span>)</li>
+          <li>Создать sandbox-репо, лейбл <span class="mono">agent-task</span>, 1–2 issue</li>
+          <li><span class="mono">cp .env.example .env</span> + заполнить</li>
+          <li><span class="mono">uv sync &amp;&amp; uv run foundry run</span></li>
+        </ol>
+        <p class="small muted" style="margin-top: .8rem;">Ожидаемый результат: в sandbox появился PR со строкой в README, issue закрыт.</p>
+      </div>
+    </div>
+    <div class="callout warn" style="margin-top: 1.2rem;">
+      Каждое «не делаем» имеет фазу, в которой появится &mdash; см. слайды 6, 7, 8. Skeleton &mdash; это каркас, а не продукт.
+    </div>
+  </section>
+
+</div>
+
+<div class="nav">
+  <button id="prev" aria-label="prev">&larr;</button>
+  <span class="counter"><span id="cur">1</span> / <span id="total">9</span></span>
+  <button id="next" aria-label="next">&rarr;</button>
+</div>
+
+<script>
+  const slides = document.querySelectorAll('.slide');
+  const cur = document.getElementById('cur');
+  const total = document.getElementById('total');
+  total.textContent = slides.length;
+  let i = 0;
+  function show(n) {
+    i = Math.max(0, Math.min(slides.length - 1, n));
+    slides.forEach((s, idx) => s.classList.toggle('active', idx === i));
+    cur.textContent = i + 1;
+  }
+  document.getElementById('prev').onclick = () => show(i - 1);
+  document.getElementById('next').onclick = () => show(i + 1);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') { show(i + 1); e.preventDefault(); }
+    if (e.key === 'ArrowLeft' || e.key === 'PageUp') { show(i - 1); e.preventDefault(); }
+    if (e.key === 'Home') show(0);
+    if (e.key === 'End') show(slides.length - 1);
+  });
+</script>
+</body>
+</html>

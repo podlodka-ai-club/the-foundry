@@ -1,0 +1,23 @@
+flowchart LR
+    GH[GitHub Issues<br/>label: agent-task]
+
+    subgraph Orchestrator["Foundry Orchestrator (FSM)"]
+        direction LR
+        FETCH[Fetch] --> CONTEXT[Context]
+        CONTEXT --> PLAN[Plan]
+        PLAN --> IMPLEMENT[Implement]
+        IMPLEMENT --> VERIFY[Verify]
+        VERIFY -->|fail, ×3| IMPLEMENT
+        VERIFY -->|pass| PR[PR]
+    end
+
+    DB[(SQLite<br/>tasks + stage logs)]
+    WT[git worktree<br/>/tmp/&lt;task-id&gt;/]
+    AGENT[Coding Agent<br/>Aider + LLM]
+    OUT[GitHub PR<br/>gh pr create]
+
+    GH -->|gh issue list| FETCH
+    Orchestrator <-->|persist after each stage| DB
+    IMPLEMENT --> WT
+    WT <--> AGENT
+    PR -->|commit / push| OUT
