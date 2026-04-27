@@ -38,3 +38,27 @@ make run          # один прогон pipeline
 make test         # все тесты
 make test-unit    # быстрые unit-тесты
 ```
+
+## Docker
+
+Перед запуском подготовьте `.env`:
+
+```
+cp .env.sample .env
+```
+
+В контейнере доступны `git`, `gh`, `uv` и установленный CLI `foundry`.
+`docker compose` пробрасывает локальную авторизацию GitHub CLI из
+`~/.config/gh`; вместо этого можно указать `GITHUB_TOKEN` в `.env`.
+Для коммитов по умолчанию используется identity `The Foundry
+<foundry@example.invalid>`; при необходимости задайте `GIT_AUTHOR_NAME` и
+`GIT_AUTHOR_EMAIL` в `.env`.
+
+```
+docker compose build
+docker compose run --rm foundry run
+docker compose run --rm foundry status
+```
+
+Данные SQLite и рабочие деревья сохраняются на хосте в `./data` и
+`./worktrees`.

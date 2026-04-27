@@ -1,0 +1,14 @@
+services:
+  foundry:
+    build:
+      context: .
+    env_file:
+      - .env
+    environment:
+      WORKTREE_ROOT: /app/worktrees
+      DB_PATH: /app/data/foundry.sqlite
+    volumes:
+      - ./data:/app/data
+      - ./worktrees:/app/worktrees
+      - ${HOME}/.config/gh:/home/app/.config/gh:ro
+    command: ["run"]
