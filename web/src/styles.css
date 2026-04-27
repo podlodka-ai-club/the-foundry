@@ -13,8 +13,8 @@
 
   --fg-0: #e8e6e3;           /* primary text */
   --fg-1: #b5b1ab;           /* secondary */
-  --fg-2: #807b73;           /* tertiary */
-  --fg-3: #5a554e;           /* disabled / very muted */
+  --fg-2: #928c83;           /* tertiary — ≥ 4.5:1 on --bg-0/1 */
+  --fg-3: #73695e;           /* very muted but still readable (~3:1) */
 
   --border: #2e2a25;
   --border-soft: #26231f;
@@ -468,4 +468,43 @@ a { color: inherit; text-decoration: none; }
   color: var(--fg-3);
   font-size: 10.5px;
   line-height: 18px;
+}
+
+/* section: stage detail tabs */
+.stage-tabbar {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-1);
+  padding: 0 8px;
+}
+.stage-tab {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 10px 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--fg-2);
+  cursor: pointer;
+  transition: color .15s ease, border-color .15s ease, background .15s ease;
+  margin-bottom: -1px;
+}
+.stage-tab:hover { color: var(--fg-0); background: var(--bg-2); }
+.stage-tab-active {
+  color: var(--fg-0);
+  border-bottom-color: var(--accent);
+}
+.stage-tab-active:hover { background: transparent; }
+.stage-tabpanel {
+  min-height: 240px;
+  overflow: auto;
 }

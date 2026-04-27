@@ -20,6 +20,7 @@ class Settings:
     db_path: Path
     poll_interval_seconds: int
     github_token: str | None = None
+    max_implement_attempts: int = 2
 
 
 def load_settings(env_path: Path | None = None) -> Settings:
@@ -43,4 +44,5 @@ def load_settings(env_path: Path | None = None) -> Settings:
         db_path=Path(os.environ.get("DB_PATH", "./data/foundry.sqlite")).resolve(),
         poll_interval_seconds=int(os.environ.get("POLL_INTERVAL_SECONDS", "30")),
         github_token=token,
+        max_implement_attempts=int(os.environ.get("MAX_IMPLEMENT_ATTEMPTS", "2")),
     )

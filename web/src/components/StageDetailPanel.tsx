@@ -1,7 +1,7 @@
-// StageDetailPanel — shows the header, input/output, and the filtered event
-// stream for the currently selected stage of an expanded task.
+// StageDetailPanel — shows the header and a tabbed view of input / event
+// stream / output for the currently selected stage of an expanded task.
 
-import type { JSX } from "react";
+import { useEffect, useState, type JSX } from "react";
 import { Activity, Check, Clock, X } from "lucide-react";
 
 import type { UiEvent, UiStage, UiTask } from "../api";
@@ -20,59 +20,31 @@ interface Props {
 
 const AGENT_STAGES = new Set(["agent_plan", "agent_implement"]);
 
-function StageSubblock({
-  title,
+type TabId = "input" | "stream" | "output";
+
+function TabButton({
+  active,
+  onClick,
   icon,
+  label,
   trailing,
-  children,
-  noPad,
 }: {
-  title: string;
+  active: boolean;
+  onClick: () => void;
   icon?: JSX.Element;
+  label: string;
   trailing?: JSX.Element;
-  children: JSX.Element | null;
-  noPad?: boolean;
 }): JSX.Element {
   return (
-    <div
-      style={{
-        borderRight: "1px solid var(--border)",
-        display: "flex",
-        flexDirection: "column",
-        minWidth: 0,
-      }}
+    <button
+      type="button"
+      onClick={onClick}
+      className={`stage-tab${active ? " stage-tab-active" : ""}`}
     >
-      <div
-        style={{
-          padding: "8px 14px",
-          borderBottom: "1px solid var(--border-soft)",
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-          fontSize: 10,
-          letterSpacing: ".08em",
-          textTransform: "uppercase",
-          fontWeight: 600,
-          color: "var(--fg-2)",
-          flexShrink: 0,
-        }}
-      >
-        {icon}
-        <span>{title}</span>
-        <span style={{ flex: 1 }} />
-        {trailing}
-      </div>
-      <div
-        style={{
-          padding: noPad ? 0 : "10px 14px",
-          flex: 1,
-          overflow: "hidden",
-          minHeight: 0,
-        }}
-      >
-        {children}
-      </div>
-    </div>
+      {icon}
+      <span>{label}</span>
+      {trailing}
+    </button>
   );
 }
 
@@ -129,6 +101,14 @@ export default function StageDetailPanel({ task, stageId, events }: Props): JSX.
   }
 
   const tokensTotal = (stage.tokens_in ?? 0) + (stage.tokens_out ?? 0);
+
+  const defaultTab: TabId = isAgentStage ? "stream" : "output";
+  const [activeTab, setActiveTab] = useState<TabId>(defaultTab);
+  useEffect(() => {
+    if (!isAgentStage && activeTab === "stream") {
+      setActiveTab("output");
+    }
+  }, [isAgentStage, activeTab]);
 
   return (
     <div className="card" style={{ padding: 0, overflow: "hidden" }}>
@@ -236,22 +216,19 @@ export default function StageDetailPanel({ task, stageId, events }: Props): JSX.
         </div>
       </div>
 
-      {/* Body grid */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: isAgentStage ? "1fr 1.4fr 1fr" : "1fr 1fr",
-          minHeight: 240,
-        }}
-      >
-        <StageSubblock title="Вход">
-          <StageIO kind="input" data={stage.input ?? null} />
-        </StageSubblock>
-
+      {/* Tab bar */}
+      <div className="stage-tabbar">
+        <TabButton
+          active={activeTab === "input"}
+          onClick={() => setActiveTab("input")}
+          label="Вход"
+        />
         {isAgentStage && (
-          <StageSubblock
-            title="Поток событий"
+          <TabButton
+            active={activeTab === "stream"}
+            onClick={() => setActiveTab("stream")}
             icon={<Activity className="ico-sm" style={{ color: "var(--accent)" }} />}
+            label="Поток событий"
             trailing={
               isRunning ? (
                 <span
@@ -272,15 +249,30 @@ export default function StageDetailPanel({ task, stageId, events }: Props): JSX.
                 </span>
               )
             }
-            noPad
-          >
-            <EventStream events={events} style="telegram" />
-          </StageSubblock>
+          />
         )}
+        <TabButton
+          active={activeTab === "output"}
+          onClick={() => setActiveTab("output")}
+          label="Выход"
+        />
+      </div>
 
-        <StageSubblock title="Выход">
-          <StageIO kind="output" data={stage.output ?? null} />
-        </StageSubblock>
+      {/* Active tab content */}
+      <div className="stage-tabpanel">
+        {activeTab === "input" && (
+          <div style={{ padding: "12px 16px" }}>
+            <StageIO kind="input" data={stage.input ?? null} />
+          </div>
+        )}
+        {activeTab === "stream" && isAgentStage && (
+          <EventStream events={events} style="telegram" />
+        )}
+        {activeTab === "output" && (
+          <div style={{ padding: "12px 16px" }}>
+            <StageIO kind="output" data={stage.output ?? null} />
+          </div>
+        )}
       </div>
 
       {/* Traceback */}

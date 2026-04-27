@@ -62,9 +62,7 @@ export default function StageStepper({
         const dotSize = sizes.dot + 6;
         const isSelected = selectedStage === s.id;
         const clickable = typeof onStageClick === "function";
-        const selectRing = isSelected ? "0 0 0 2px var(--accent)" : "";
-        const runRing = ring ? "0 0 0 3px var(--running-soft)" : "";
-        const rings = [selectRing, runRing].filter(Boolean).join(", ") || "none";
+        const runRing = ring ? "0 0 0 3px var(--running-soft)" : "none";
         const dotStyle: CSSProperties = {
           width: dotSize,
           height: dotSize,
@@ -72,11 +70,15 @@ export default function StageStepper({
           background: dotColor,
           display: "grid",
           placeItems: "center",
-          boxShadow: rings,
+          boxShadow: runRing,
+          // Selection outline sits outside the dot with a transparent gap, so
+          // it stays readable against any dot colour and any row background.
+          outline: isSelected ? "2px solid var(--accent)" : "none",
+          outlineOffset: isSelected ? 2 : 0,
           animation: ring ? "pulse-dot 1.4s ease-in-out infinite" : "none",
           flexShrink: 0,
           cursor: clickable ? "pointer" : "default",
-          transition: "transform .15s",
+          transition: "transform .15s, outline-color .15s",
         };
 
         const labelStyle: CSSProperties = {

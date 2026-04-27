@@ -9,7 +9,7 @@ from foundry.events import read_events
 from foundry.models import Stage, Task, TaskStatus
 
 
-def _settings(tmp_path: Path) -> Settings:
+def _settings(tmp_path: Path, *, max_implement_attempts: int = 2) -> Settings:
     return Settings(
         source_repo="owner/sandbox",
         target_repo="owner/sandbox",
@@ -17,6 +17,7 @@ def _settings(tmp_path: Path) -> Settings:
         worktree_root=tmp_path / "worktrees",
         db_path=tmp_path / "foundry.sqlite",
         poll_interval_seconds=30,
+        max_implement_attempts=max_implement_attempts,
     )
 
 
@@ -36,17 +37,17 @@ def test_run_once_happy_path(tmp_path: Path) -> None:
     seeded = _seed_task(settings.db_path)
 
     with patch("foundry.pipeline.fetch_stage.fetch", return_value=[seeded]), \
-         patch("foundry.pipeline.worktree.ensure_base_repo", return_value=tmp_path / "base"), \
+         patch("foundry.workflows.worktree.ensure_base_repo", return_value=tmp_path / "base"), \
          patch(
-             "foundry.pipeline.worktree.create_worktree",
+             "foundry.workflows.worktree.create_worktree",
              return_value=(tmp_path / "wt", "foundry/task-1"),
          ), \
-         patch("foundry.pipeline.worktree.cleanup_worktree"), \
-         patch("foundry.pipeline.agent_plan_stage.run", return_value={"plan": "", "summary": ""}), \
-         patch("foundry.pipeline.agent_implement_stage.run", return_value={"applied": []}), \
-         patch("foundry.pipeline.verify_stage.run", return_value={"passed": True}), \
+         patch("foundry.workflows.worktree.cleanup_worktree"), \
+         patch("foundry.workflows.agent_plan_stage.run", return_value={"plan": "", "summary": ""}), \
+         patch("foundry.workflows.agent_implement_stage.run", return_value={"applied": []}), \
+         patch("foundry.workflows.verify_stage.run", return_value={"passed": True}), \
          patch(
-             "foundry.pipeline.pr_stage.run",
+             "foundry.workflows.pr_stage.run",
              return_value={"pr_url": "https://example/pr/1", "branch": "foundry/task-1"},
          ):
         processed = pipeline.run_once(settings)
@@ -76,15 +77,15 @@ def test_fetch_events_are_not_duplicated_on_rerun(tmp_path: Path) -> None:
 
     patches = {
         "foundry.pipeline.fetch_stage.fetch": {"return_value": [seeded]},
-        "foundry.pipeline.worktree.ensure_base_repo": {"return_value": tmp_path / "base"},
-        "foundry.pipeline.worktree.create_worktree": {
+        "foundry.workflows.worktree.ensure_base_repo": {"return_value": tmp_path / "base"},
+        "foundry.workflows.worktree.create_worktree": {
             "return_value": (tmp_path / "wt", "foundry/task-1"),
         },
-        "foundry.pipeline.worktree.cleanup_worktree": {},
-        "foundry.pipeline.agent_plan_stage.run": {"return_value": {"plan": "", "summary": ""}},
-        "foundry.pipeline.agent_implement_stage.run": {"return_value": {"applied": []}},
-        "foundry.pipeline.verify_stage.run": {"return_value": {"passed": True}},
-        "foundry.pipeline.pr_stage.run": {
+        "foundry.workflows.worktree.cleanup_worktree": {},
+        "foundry.workflows.agent_plan_stage.run": {"return_value": {"plan": "", "summary": ""}},
+        "foundry.workflows.agent_implement_stage.run": {"return_value": {"applied": []}},
+        "foundry.workflows.verify_stage.run": {"return_value": {"passed": True}},
+        "foundry.workflows.pr_stage.run": {
             "return_value": {"pr_url": "https://example/pr/1", "branch": "foundry/task-1"},
         },
     }
@@ -124,7 +125,7 @@ def test_run_once_pre_implement_failure_requeues(tmp_path: Path) -> None:
 
     with patch("foundry.pipeline.fetch_stage.fetch", return_value=[seeded]), \
          patch(
-             "foundry.pipeline.worktree.ensure_base_repo",
+             "foundry.workflows.worktree.ensure_base_repo",
              side_effect=RuntimeError("TLS handshake timeout"),
          ):
         processed = pipeline.run_once(settings)
@@ -141,14 +142,14 @@ def test_run_once_stage_failure_marks_failed(tmp_path: Path) -> None:
     seeded = _seed_task(settings.db_path)
 
     with patch("foundry.pipeline.fetch_stage.fetch", return_value=[seeded]), \
-         patch("foundry.pipeline.worktree.ensure_base_repo", return_value=tmp_path / "base"), \
+         patch("foundry.workflows.worktree.ensure_base_repo", return_value=tmp_path / "base"), \
          patch(
-             "foundry.pipeline.worktree.create_worktree",
+             "foundry.workflows.worktree.create_worktree",
              return_value=(tmp_path / "wt", "foundry/task-1"),
          ), \
-         patch("foundry.pipeline.worktree.cleanup_worktree"), \
-         patch("foundry.pipeline.agent_plan_stage.run", return_value={"plan": "", "summary": ""}), \
-         patch("foundry.pipeline.agent_implement_stage.run", side_effect=RuntimeError("boom")):
+         patch("foundry.workflows.worktree.cleanup_worktree"), \
+         patch("foundry.workflows.agent_plan_stage.run", return_value={"plan": "", "summary": ""}), \
+         patch("foundry.workflows.agent_implement_stage.run", side_effect=RuntimeError("boom")):
         processed = pipeline.run_once(settings)
 
     final = state.get_task(settings.db_path, processed[0].id)
