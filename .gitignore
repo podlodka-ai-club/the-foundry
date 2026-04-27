@@ -18,6 +18,7 @@ code/.aider.input.history
 # Agent temp files (tasks + test code)
 code
 agent/tasks
+docs/tasks/
 !code/hello.py
 
 # required agent files (tasks samples + configs)
@@ -37,4 +38,3 @@ __pycache__/
 .pytest_cache/
 *.pyc
 .claude
-
