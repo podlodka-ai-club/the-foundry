@@ -93,6 +93,56 @@ AGENT_IMPLEMENT_MAX_TURNS=40
 
 Все доступные ключи и оверрайды задокументированы в [.env.example](.env.example) (в т.ч. `codex_cli`, `opencode_cli` и опциональный Langfuse-трейсинг).
 
+### Живой пример: pipeline на OpenCode + DeepSeek
+
+Если нет подписки на Claude и не хочется тратить кредиты Anthropic API — есть путь через [OpenCode](https://opencode.ai/) (CLI-агент, умеющий ходить в десятки провайдеров) и DeepSeek (дешёвый API-ключ, регистрация на [platform.deepseek.com](https://platform.deepseek.com/)).
+
+Prereqs:
+
+```bash
+# 1. Поставить opencode CLI
+curl -fsSL https://opencode.ai/install | bash
+# либо: brew install anomalyco/tap/opencode
+# либо: npm install -g opencode-ai
+
+# 2. Положить DeepSeek API key в auth.json (формат документирован в opencode docs)
+mkdir -p ~/.local/share/opencode
+cat > ~/.local/share/opencode/auth.json <<'EOF'
+{
+  "deepseek": { "type": "api", "key": "sk-..." }
+}
+EOF
+
+# 3. Smoke-проверка — должен ответить без TUI
+opencode run -m deepseek/deepseek-v4-flash "say hi in one word"
+```
+
+Полный список поддерживаемых провайдеров и моделей — [opencode.ai/docs/providers](https://opencode.ai/docs/providers/).
+
+`.env`:
+
+```bash
+SOURCE_REPO=your-org/the-foundry-sandbox
+TARGET_REPO=your-org/the-foundry-sandbox
+ISSUE_LABEL=agent-task
+
+# Coding agent — opencode + DeepSeek
+CODING_AGENT=opencode_cli
+AGENT_MODEL=deepseek/deepseek-v4-flash   # дешёвый дефолт, аналог haiku
+AGENT_MAX_TURNS=20
+AGENT_TIMEOUT_SEC=600
+
+# Per-stage: на implement берём более сильную модель
+AGENT_PLAN_MODEL=deepseek/deepseek-v4-flash
+AGENT_VERIFY_MODEL=deepseek/deepseek-v4-flash
+AGENT_IMPLEMENT_MODEL=deepseek/deepseek-v4-pro
+AGENT_IMPLEMENT_MAX_TURNS=40
+```
+
+Аутентификация и формат идентификатора модели — на стороне `opencode` CLI; foundry-бэкенд только пробрасывает `-m <model>` и `--session <id>` для resume. Поэтому смену провайдера (DeepSeek → OpenAI → локальный Ollama → …) делаешь правкой `auth.json` + `AGENT_MODEL`, без изменений в коде.
+
+> **Важно про observability:** в отличие от `claude_cli`, бэкенд `opencode_cli` пока не стримит инкрементальные `agent_tool` / `agent_text` события в `task_events` — UI увидит только финальный `stage_finished` (см. TODO в [src/foundry/agents/opencode_cli.py](src/foundry/agents/opencode_cli.py)).
+
 ---
 
 ## Запуск: три раннера
