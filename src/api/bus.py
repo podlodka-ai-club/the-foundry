@@ -6,7 +6,14 @@ from pathlib import Path
 from typing import AsyncIterator
 
 from foundry.events import read_events
-from foundry.models import RunEvent
+from foundry.models import RunEvent, RunStatus
+from foundry.state import get_run
+
+_TERMINAL_STATUSES: set[RunStatus] = {
+    RunStatus.DONE,
+    RunStatus.FAILED,
+    RunStatus.UNCLEAR,
+}
 
 
 def _default_poll_interval() -> float:
@@ -51,5 +58,12 @@ async def subscribe(
 
         if is_disconnected is not None and await is_disconnected():
             break
+
+        # If the run reached a terminal state and we just emitted everything
+        # there is to emit, stop polling — no future writer will append.
+        if not events:
+            run = await asyncio.to_thread(get_run, db_path, run_id)
+            if run is not None and run.status in _TERMINAL_STATUSES:
+                break
 
         await asyncio.sleep(interval)

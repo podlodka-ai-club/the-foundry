@@ -88,45 +88,63 @@ class Orchestrator:
             await self._pickup_pending_runs()
 
     async def _pickup_pending_runs(self) -> None:
-        """Promote PENDING runs (created by the API for retry) to RUNNING."""
-        pending_runs = await asyncio.to_thread(
-            state.list_runs,
-            self.settings.db_path,
-            status=RunStatus.PENDING,
-            limit=20,
-        )
-        for run in pending_runs:
-            if run.id is None:
-                continue
-            # Atomic-ish: flip to RUNNING before dispatch so we don't pick the
-            # same row twice on the next scan loop.
-            await asyncio.to_thread(
-                state.update_run,
+        """Promote PENDING runs (created by the API for retry) to RUNNING.
+
+        Wrapped in `_dispatch_lock` to serialize against `handle_event` —
+        otherwise an event arriving for the same (event_id, automation_id)
+        as a pending retry could spawn a parallel run before our flip
+        from PENDING → RUNNING is visible.
+        """
+        async with self._dispatch_lock:
+            pending_runs = await asyncio.to_thread(
+                state.list_runs,
                 self.settings.db_path,
-                run.id,
-                status=RunStatus.RUNNING,
+                status=RunStatus.PENDING,
+                limit=20,
             )
-            automation = get_automation(run.automation_id)
-            event = await asyncio.to_thread(
-                state.get_event, self.settings.db_path, run.event_id
-            )
-            if automation is None or event is None:
-                log.warning(
-                    "orchestrator.pending_run_missing_dep",
-                    run_id=run.id,
-                    automation_id=run.automation_id,
-                    event_id=run.event_id,
+            for run in pending_runs:
+                if run.id is None:
+                    continue
+                automation = get_automation(run.automation_id)
+                event = await asyncio.to_thread(
+                    state.get_event, self.settings.db_path, run.event_id
                 )
-                continue
-            asyncio.create_task(
-                self.execute_run(
-                    run_id=run.id,
-                    automation=automation,
-                    event=event,
-                    session_id=run.session_id,
-                ),
-                name=f"run:{run.id}",
-            )
+                if automation is None or event is None:
+                    # Don't leave the run hanging in PENDING forever — fail it
+                    # with infra so the UI can surface the broken state.
+                    log.warning(
+                        "orchestrator.pending_run_missing_dep",
+                        run_id=run.id,
+                        automation_id=run.automation_id,
+                        event_id=run.event_id,
+                    )
+                    await asyncio.to_thread(
+                        state.finish_run,
+                        self.settings.db_path,
+                        run.id,
+                        status=RunStatus.FAILED,
+                        duration_sec=0.0,
+                        failure_kind=FailureKind.INFRA,
+                        failure_msg="automation or event missing at pickup",
+                    )
+                    continue
+                # Flip to RUNNING only after we have everything we need —
+                # avoids stranding the run in RUNNING with nothing executing.
+                await asyncio.to_thread(
+                    state.update_run,
+                    self.settings.db_path,
+                    run.id,
+                    status=RunStatus.RUNNING,
+                )
+                asyncio.create_task(
+                    self.execute_run(
+                        run_id=run.id,
+                        automation=automation,
+                        event=event,
+                        session_id=run.session_id,
+                    ),
+                    name=f"run:{run.id}",
+                )
 
     async def handle_event(self, event: Event) -> list[int]:
         triggers = _trigger_ids_for_event(event)
@@ -199,9 +217,9 @@ class Orchestrator:
                 stage="run",
                 input={"automation_id": automation.id, "session_id": session_id},
             ) as finish_stage:
-                worktree_path = await self._prepare_worktree(automation, run_id)
-                branch_name = f"foundry/run-{run_id}"
-
+                worktree_path, branch_name = await self._prepare_worktree(
+                    automation, run_id
+                )
                 extra_env = self._extra_env(event, worktree_path, branch_name)
                 cfg = build_mcp_config(
                     db_path=db,
@@ -281,20 +299,29 @@ class Orchestrator:
                 failure_msg=repr(exc),
             )
 
-    async def _prepare_worktree(self, automation: Automation, run_id: int) -> Path:
+    async def _prepare_worktree(
+        self, automation: Automation, run_id: int
+    ) -> tuple[Path, str]:
+        """Return (worktree_path, branch_name) for this run.
+
+        When the automation declares `open_worktree`, we materialise a real
+        git worktree on a fresh `foundry/task-{run_id}` branch and return its
+        path/branch. Otherwise — placeholder dir without git, with a branch
+        name that exists only as an env var (no git operations expected).
+        """
         if "open_worktree" in automation.skills:
             await asyncio.to_thread(
                 worktree.ensure_base_repo,
                 self.settings.worktree_root,
                 self.settings.source_repo,
             )
-            wt_path, _branch = await asyncio.to_thread(
+            wt_path, branch = await asyncio.to_thread(
                 worktree.create_worktree, self.settings.worktree_root, run_id
             )
-            return wt_path
+            return wt_path, branch
         path = self.settings.worktree_root / f"run-{run_id}"
         path.mkdir(parents=True, exist_ok=True)
-        return path
+        return path, f"foundry/run-{run_id}"
 
     def _extra_env(
         self, event: Event, worktree_path: Path, branch_name: str

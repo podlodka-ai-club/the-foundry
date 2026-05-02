@@ -333,6 +333,54 @@ async def test_run_forever_drains_queue_hints(tmp_path: Path) -> None:
     assert len(runs) == 1
 
 
+async def test_pickup_fails_pending_run_when_automation_missing(
+    tmp_path: Path,
+) -> None:
+    """Regression: PENDING runs whose automation is no longer registered
+    must be finalized as FAILED/INFRA, not left hanging in RUNNING."""
+    from foundry.models import FailureKind
+
+    settings = _settings(tmp_path)
+    init_db(settings.db_path)
+
+    eid = record_external_event(
+        settings.db_path,
+        source="github_issues",
+        external_id="x#1",
+        kind="issue.opened",
+        payload={"number": 1},
+    )
+    assert eid is not None
+
+    rid = create_run(
+        settings.db_path,
+        automation_id="vanished",  # not in registry
+        event_id=eid,
+        session_id="abc",
+        session_seq=1,
+        status=RunStatus.PENDING,
+    )
+
+    orch = Orchestrator(settings, db_poll_sec=0.05)
+    stop = asyncio.Event()
+    task = asyncio.create_task(orch.run_forever(stop))
+    await asyncio.sleep(0.2)
+    stop.set()
+    try:
+        await asyncio.wait_for(task, timeout=1.0)
+    except asyncio.TimeoutError:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    run = get_run(settings.db_path, rid)
+    assert run is not None
+    assert run.status is RunStatus.FAILED
+    assert run.failure_kind is FailureKind.INFRA
+
+
 # --- helpers ---
 
 

@@ -69,3 +69,35 @@ def test_mark_failed_rejects_invalid_kind(run_ctx: tuple[Path, int]) -> None:
     assert run is not None
     # Run remains running, untouched.
     assert run.status is RunStatus.RUNNING
+
+
+def test_mark_done_rejected_when_run_already_terminal(
+    run_ctx: tuple[Path, int],
+) -> None:
+    """Regression: mark_done must not resurrect a finalized run (e.g. one
+    already stopped by the user via POST /stop)."""
+    db, run_id = run_ctx
+    # First call wins.
+    assert mark_done_impl() == {"ok": True}
+
+    # Second call must be rejected — without this guard, an agent could
+    # overwrite a user-initiated `stop` or another mark.
+    out = mark_done_impl()
+    assert out["ok"] is False
+    assert "terminal" in out["error"]
+
+
+def test_mark_failed_rejected_when_run_already_terminal(
+    run_ctx: tuple[Path, int],
+) -> None:
+    db, run_id = run_ctx
+    assert mark_done_impl() == {"ok": True}
+
+    out = mark_failed_impl(kind="infra", msg="late")
+    assert out["ok"] is False
+    assert "terminal" in out["error"]
+    run = get_run(db, run_id)
+    assert run is not None
+    # First terminal status wins; failure_kind/msg stay None.
+    assert run.status is RunStatus.DONE
+    assert run.failure_kind is None

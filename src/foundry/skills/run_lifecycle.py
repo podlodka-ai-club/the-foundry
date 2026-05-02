@@ -19,6 +19,11 @@ from foundry.events import record_event
 from foundry.models import FailureKind, RunStatus
 
 _VALID_FAILURE_KINDS: set[str] = {k.value for k in FailureKind}
+_TERMINAL_STATUSES: set[RunStatus] = {
+    RunStatus.DONE,
+    RunStatus.FAILED,
+    RunStatus.UNCLEAR,
+}
 
 
 def _ctx() -> tuple[Path, int, int | None]:
@@ -45,6 +50,11 @@ def mark_done_impl() -> dict[str, Any]:
     """Mark the current run as DONE."""
     db_path, run_id, parent = _ctx()
     run = state.get_run(db_path, run_id)
+    if run is not None and run.status in _TERMINAL_STATUSES:
+        return {
+            "ok": False,
+            "error": f"run already terminal: {run.status.value}",
+        }
     duration = _duration_sec(run.started_at) if run is not None else 0.0
 
     state.finish_run(
@@ -71,6 +81,11 @@ def mark_failed_impl(*, kind: str, msg: str) -> dict[str, Any]:
 
     db_path, run_id, parent = _ctx()
     run = state.get_run(db_path, run_id)
+    if run is not None and run.status in _TERMINAL_STATUSES:
+        return {
+            "ok": False,
+            "error": f"run already terminal: {run.status.value}",
+        }
     duration = _duration_sec(run.started_at) if run is not None else 0.0
 
     state.finish_run(

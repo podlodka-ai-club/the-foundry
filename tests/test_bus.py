@@ -77,3 +77,29 @@ async def test_bus_subscribe_filters_by_after_seq(tmp_path: Path) -> None:
 
     # Assert
     assert [ev.seq for ev in received] == [4, 5]
+
+
+@pytest.mark.asyncio
+async def test_bus_subscribe_closes_when_run_terminal(tmp_path: Path) -> None:
+    """Regression: SSE generator must self-terminate after the run reaches a
+    terminal status — otherwise abandoned EventSource connections poll
+    forever."""
+    from foundry.models import RunStatus
+
+    db = tmp_path / "f.sqlite"
+    state.init_db(db)
+    run_id = state.create_run(
+        db, automation_id="a", event_id=1, session_id="s", status=RunStatus.DONE,
+    )
+    record_event(db, run_id, "run_lifecycle", "mark", {"action": "done"})
+
+    agen = subscribe(db, run_id=run_id, poll_interval=0.02)
+    received: list[RunEvent] = []
+    # Drain — generator should yield existing event then exit on next iteration.
+    async for ev in agen:
+        received.append(ev)
+        if len(received) > 5:  # safety net against infinite loop regression
+            break
+
+    assert len(received) == 1
+    assert received[0].kind == "mark"
