@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from api.projections import project_task
-from foundry.models import Event, Stage, Task, TaskStatus
+from foundry.models import RunEvent, Stage, Task, TaskStatus
 
 
 def _task(**overrides) -> Task:
@@ -17,10 +17,10 @@ def _task(**overrides) -> Task:
     return t
 
 
-def _ev(seq: int, stage: str, kind: str, payload: dict) -> Event:
-    return Event(
+def _ev(seq: int, stage: str, kind: str, payload: dict) -> RunEvent:
+    return RunEvent(
         id=seq,
-        task_id=1,
+        run_id=1,
         seq=seq,
         stage=stage,
         kind=kind,

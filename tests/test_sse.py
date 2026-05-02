@@ -9,7 +9,7 @@ import pytest
 from api.sse import _parse_last_event_id, format_sse, sse_stream
 from foundry import state
 from foundry.events import record_event
-from foundry.models import Event, Task
+from foundry.models import RunEvent, Task
 
 
 @pytest.fixture
@@ -49,9 +49,9 @@ def test_parse_last_event_id_variants() -> None:
 
 def test_format_sse_shape() -> None:
     # Arrange
-    ev = Event(
+    ev = RunEvent(
         id=1,
-        task_id=1,
+        run_id=1,
         seq=5,
         stage="plan",
         kind="agent_text",

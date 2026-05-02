@@ -162,7 +162,7 @@ def test_dev_task_pass_after_retry_opens_pr(tmp_path: Path) -> None:
     assert "missing file" in implement_calls[1]["plan"]
 
     # Events should show two implement spans with attempt numbers and two verify spans.
-    events = read_events(settings.db_path, task_id=final.id)
+    events = read_events(settings.db_path, run_id=final.id)
     implement_started = [
         e for e in events if e.stage == "implement" and e.kind == "stage_started"
     ]
@@ -208,7 +208,7 @@ def test_dev_task_exhausted_retries_marks_failed(tmp_path: Path) -> None:
     assert final.pr_url is None
     assert pr_called == []
 
-    events = read_events(settings.db_path, task_id=final.id)
+    events = read_events(settings.db_path, run_id=final.id)
     implement_starts = [e for e in events if e.stage == "implement" and e.kind == "stage_started"]
     assert len(implement_starts) == 2  # max_implement_attempts
 
@@ -244,7 +244,7 @@ def test_dev_task_human_blocked_stops_after_one_attempt(tmp_path: Path) -> None:
     assert final.status == TaskStatus.FAILED
     assert final.pr_url is None
 
-    events = read_events(settings.db_path, task_id=final.id)
+    events = read_events(settings.db_path, run_id=final.id)
     implement_starts = [e for e in events if e.stage == "implement" and e.kind == "stage_started"]
     assert len(implement_starts) == 1
 
@@ -272,7 +272,7 @@ def test_pr_verify_passed_returns_report_and_skips_pr(tmp_path: Path) -> None:
     assert final.status != TaskStatus.DONE
     assert final.pr_url is None
 
-    events = read_events(settings.db_path, task_id=seeded.id)
+    events = read_events(settings.db_path, run_id=seeded.id)
     verify_events = [e for e in events if e.stage == "verify"]
     assert [e.kind for e in verify_events] == ["stage_started", "stage_finished"]
     assert verify_events[0].payload["input"]["workflow"] == WorkflowName.PR_VERIFY.value

@@ -8,7 +8,7 @@ from fastapi import APIRouter, Header, Request
 from fastapi.responses import StreamingResponse
 
 from foundry.config import load_settings
-from foundry.models import Event
+from foundry.models import RunEvent
 
 from .bus import subscribe as bus_subscribe
 from .projections import alias_stage
@@ -25,7 +25,7 @@ def _parse_last_event_id(raw: str | None) -> int | None:
         return None
 
 
-def format_sse(event: Event) -> bytes:
+def format_sse(event: RunEvent) -> bytes:
     """Render an Event as an SSE wire chunk with aliased stage."""
     data = json.dumps(
         {

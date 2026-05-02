@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import AsyncIterator
 
 from foundry.events import read_events
-from foundry.models import Event
+from foundry.models import RunEvent
 
 
 def _default_poll_interval() -> float:
@@ -29,7 +29,7 @@ async def subscribe(
     *,
     poll_interval: float | None = None,
     is_disconnected=None,
-) -> AsyncIterator[Event]:
+) -> AsyncIterator[RunEvent]:
     """Yield events for `task_id` in seq order by polling SQLite.
 
     Works across processes — the pipeline writer and the API reader do not

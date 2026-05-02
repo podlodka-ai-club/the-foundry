@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
+
+import pytest
 
 from foundry import state
 from foundry.models import Stage, Task, TaskStatus
@@ -83,3 +86,101 @@ def test_append_log_accumulates(tmp_path: Path) -> None:
     assert len(logs) == 2
     assert logs[0]["stage"] == "plan"
     assert logs[1]["stage"] == "implement"
+
+
+def _table_exists(db: Path, table: str) -> bool:
+    conn = sqlite3.connect(db)
+    try:
+        row = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name = ?", (table,)
+        ).fetchone()
+        return row is not None
+    finally:
+        conn.close()
+
+
+def test_init_db_creates_events_table(tmp_path: Path) -> None:
+    db = tmp_path / "f.sqlite"
+    state.init_db(db)
+    assert _table_exists(db, "events")
+
+
+def test_init_db_creates_runs_table(tmp_path: Path) -> None:
+    db = tmp_path / "f.sqlite"
+    state.init_db(db)
+    assert _table_exists(db, "runs")
+
+
+def test_init_db_creates_run_events_table(tmp_path: Path) -> None:
+    db = tmp_path / "f.sqlite"
+    state.init_db(db)
+    assert _table_exists(db, "run_events")
+
+
+def test_init_db_drops_legacy_task_events(tmp_path: Path) -> None:
+    # Arrange — pre-create the legacy table to simulate an old DB.
+    db = tmp_path / "f.sqlite"
+    db.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db)
+    try:
+        conn.execute("CREATE TABLE task_events (id INTEGER PRIMARY KEY)")
+        conn.commit()
+    finally:
+        conn.close()
+    assert _table_exists(db, "task_events")
+
+    # Act
+    state.init_db(db)
+
+    # Assert
+    assert not _table_exists(db, "task_events")
+
+
+def test_events_unique_constraint(tmp_path: Path) -> None:
+    # Arrange
+    db = tmp_path / "f.sqlite"
+    state.init_db(db)
+    conn = sqlite3.connect(db)
+    try:
+        conn.execute(
+            "INSERT INTO events (source, external_id, kind, payload, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ("github_issues", "ext-1", "issue_opened", "{}", "2026-01-01T00:00:00Z"),
+        )
+        conn.commit()
+
+        # Act / Assert
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "INSERT INTO events (source, external_id, kind, payload, created_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                ("github_issues", "ext-1", "issue_opened", "{}", "2026-01-01T00:00:00Z"),
+            )
+            conn.commit()
+    finally:
+        conn.close()
+
+
+def test_run_events_unique_run_id_seq(tmp_path: Path) -> None:
+    # Arrange
+    db = tmp_path / "f.sqlite"
+    state.init_db(db)
+    conn = sqlite3.connect(db)
+    try:
+        conn.execute(
+            "INSERT INTO run_events (run_id, seq, stage, kind, ts_ms, payload) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (1, 1, "plan", "stage_started", 0, "{}"),
+        )
+        conn.commit()
+
+        # Act / Assert
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "INSERT INTO run_events (run_id, seq, stage, kind, ts_ms, payload) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (1, 1, "plan", "stage_finished", 1, "{}"),
+            )
+            conn.commit()
+    finally:
+        conn.close()

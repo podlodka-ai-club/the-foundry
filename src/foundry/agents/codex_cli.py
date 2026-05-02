@@ -23,7 +23,7 @@ class CodexCliAgent:
     differently in each branch.
 
     TODO(PR3.5): stream events via `iter_cli_jsonl` and emit `agent_tool` /
-    `agent_text` / `agent_result` into `task_events`. Codex uses a different
+    `agent_text` / `agent_result` into `run_events`. Codex uses a different
     JSONL schema (`item.completed` / `turn.completed`, not Claude's
     `assistant`-with-content-blocks), so the tool-normalizer needs a codex
     adapter before it can share `_normalize_tool_event` with the claude

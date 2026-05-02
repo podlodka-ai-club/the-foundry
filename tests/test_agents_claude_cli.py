@@ -241,7 +241,7 @@ def test_claude_cli_emits_agent_tool_events_during_apply(tmp_path: Path) -> None
     assert result.response == "final line\nmore"
     assert result.result == "final line"
 
-    events = read_events(db, task_id=101)
+    events = read_events(db, run_id=101)
     kinds = [(e.kind, e.seq) for e in events]
     kind_names = [k for k, _ in kinds]
     assert "agent_tool" in kind_names

@@ -25,7 +25,7 @@ class ClaudeCliAgent:
     `--resume <id>` with just `input`.
 
     Events are streamed line-by-line via `iter_cli_jsonl` and mirrored into
-    `task_events` (`agent_tool` / `agent_text` / `agent_thinking` /
+    `run_events` (`agent_tool` / `agent_text` / `agent_thinking` /
     `agent_result`) so the UI can watch a stage as it runs. The
     `AgentResult` contract is unchanged — streaming is purely a side
     channel.
@@ -110,7 +110,7 @@ class ClaudeCliAgent:
         return self._sessions.get(task.id)
 
     def _emit_for(self, task: AgentTask, event: dict[str, Any]) -> None:
-        """Translate one streamed CLI event into `task_events` rows."""
+        """Translate one streamed CLI event into `run_events` rows."""
         etype = event.get("type")
         if etype != "assistant":
             return
@@ -141,7 +141,7 @@ class ClaudeCliAgent:
             return
         record_event(
             self._settings.db_path,
-            task_id=task.id,
+            run_id=task.id,
             stage=self.stage.value,
             kind=kind,
             payload=payload,

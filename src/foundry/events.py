@@ -10,7 +10,7 @@ from typing import Any, Callable, Iterator
 
 import structlog
 
-from .models import Event
+from .models import RunEvent
 
 log = structlog.get_logger(__name__)
 
@@ -51,15 +51,17 @@ def _maybe_truncate_string(s: str) -> Any:
 
 def record_event(
     db_path: Path,
-    task_id: int,
+    run_id: int,
     stage: str,
     kind: str,
     payload: dict[str, Any],
+    *,
+    parent_event_seq: int | None = None,
 ) -> int:
-    """Append an event for task_id. Returns the assigned per-task seq.
+    """Append an event for run_id. Returns the assigned per-run seq.
 
     Atomic under concurrent writers: MAX(seq)+1 and INSERT happen inside a
-    single transaction guarded by SQLite's UNIQUE(task_id, seq) constraint.
+    single transaction guarded by SQLite's UNIQUE(run_id, seq) constraint.
     """
     truncated = _truncate_payload(payload)
     payload_json = json.dumps(truncated, ensure_ascii=False)
@@ -71,19 +73,19 @@ def record_event(
         while True:
             try:
                 cur = conn.execute(
-                    "SELECT COALESCE(MAX(seq), 0) + 1 FROM task_events WHERE task_id = ?",
-                    (task_id,),
+                    "SELECT COALESCE(MAX(seq), 0) + 1 FROM run_events WHERE run_id = ?",
+                    (run_id,),
                 )
                 seq = cur.fetchone()[0]
                 conn.execute(
-                    "INSERT INTO task_events (task_id, seq, stage, kind, ts_ms, payload) "
-                    "VALUES (?, ?, ?, ?, ?, ?)",
-                    (task_id, seq, stage, kind, ts_ms, payload_json),
+                    "INSERT INTO run_events (run_id, seq, parent_event_seq, stage, kind, ts_ms, payload) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (run_id, seq, parent_event_seq, stage, kind, ts_ms, payload_json),
                 )
                 conn.commit()
                 return seq
             except sqlite3.IntegrityError:
-                # Seq assignment relies on UNIQUE(task_id, seq) + retry, not locking.
+                # Seq assignment relies on UNIQUE(run_id, seq) + retry, not locking.
                 # The SELECT above runs unprotected (BEGIN fires only before INSERT),
                 # so a concurrent writer may grab the same seq first — roll back and
                 # retry; MAX(seq) will have advanced.
@@ -95,17 +97,20 @@ def record_event(
 
 def read_events(
     db_path: Path,
-    task_id: int,
+    run_id: int,
     after_seq: int | None = None,
     limit: int | None = None,
-) -> list[Event]:
-    """Read events for task_id in seq ASC order. If after_seq is set, only
+) -> list[RunEvent]:
+    """Read events for run_id in seq ASC order. If after_seq is set, only
     events with seq > after_seq are returned."""
     conn = sqlite3.connect(db_path, timeout=30.0)
     conn.row_factory = sqlite3.Row
     try:
-        sql = "SELECT id, task_id, seq, stage, kind, ts_ms, payload FROM task_events WHERE task_id = ?"
-        params: list[Any] = [task_id]
+        sql = (
+            "SELECT id, run_id, seq, parent_event_seq, stage, kind, ts_ms, payload "
+            "FROM run_events WHERE run_id = ?"
+        )
+        params: list[Any] = [run_id]
         if after_seq is not None:
             sql += " AND seq > ?"
             params.append(after_seq)
@@ -115,10 +120,11 @@ def read_events(
             params.append(limit)
         rows = conn.execute(sql, params).fetchall()
         return [
-            Event(
+            RunEvent(
                 id=row["id"],
-                task_id=row["task_id"],
+                run_id=row["run_id"],
                 seq=row["seq"],
+                parent_event_seq=row["parent_event_seq"],
                 stage=row["stage"],
                 kind=row["kind"],
                 ts_ms=row["ts_ms"],
@@ -133,11 +139,12 @@ def read_events(
 @contextmanager
 def stage_span(
     db_path: Path,
-    task_id: int,
+    run_id: int,
     stage: str,
     *,
     input: dict[str, Any] | None = None,
     agent: dict[str, Any] | None = None,
+    parent_event_seq: int | None = None,
 ) -> Iterator[Callable[..., None]]:
     """Emit stage_started on entry and stage_finished / stage_failed on exit.
 
@@ -152,7 +159,14 @@ def stage_span(
         started_payload["input"] = input
     if agent is not None:
         started_payload["agent"] = agent
-    record_event(db_path, task_id, stage, "stage_started", started_payload)
+    record_event(
+        db_path,
+        run_id,
+        stage,
+        "stage_started",
+        started_payload,
+        parent_event_seq=parent_event_seq,
+    )
 
     t0 = time.monotonic()
     meta: dict[str, Any] = {}
@@ -175,7 +189,7 @@ def stage_span(
         duration_ms = int((time.monotonic() - t0) * 1000)
         record_event(
             db_path,
-            task_id,
+            run_id,
             stage,
             "stage_failed",
             {
@@ -183,6 +197,7 @@ def stage_span(
                 "error": repr(exc),
                 "traceback": _traceback.format_exc(),
             },
+            parent_event_seq=parent_event_seq,
         )
         raise
 
@@ -198,4 +213,11 @@ def stage_span(
             finished_payload["tokens_in"] = meta["tokens_in"]
         if meta.get("tokens_out") is not None:
             finished_payload["tokens_out"] = meta["tokens_out"]
-    record_event(db_path, task_id, stage, "stage_finished", finished_payload)
+    record_event(
+        db_path,
+        run_id,
+        stage,
+        "stage_finished",
+        finished_payload,
+        parent_event_seq=parent_event_seq,
+    )

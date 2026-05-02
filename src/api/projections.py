@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from foundry.models import Event, Task
+from foundry.models import RunEvent, Task
 
 # Aliases applied at the projection boundary only. DB and pipeline keep the
 # internal FSM names (`plan`, `implement`, `verify`, ...).
@@ -67,7 +67,7 @@ class UiTask(BaseModel):
 
 def project_task(
     task: Task,
-    events: list[Event],
+    events: list[RunEvent],
     *,
     include_events: bool = False,
     events_limit: int = 200,

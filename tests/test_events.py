@@ -15,9 +15,9 @@ def test_record_event_returns_monotonic_seq(tmp_path: Path) -> None:
     state.init_db(db)
 
     # Act
-    s1 = record_event(db, task_id=1, stage="plan", kind="stage_started", payload={})
-    s2 = record_event(db, task_id=1, stage="plan", kind="agent_text", payload={"text": "hi"})
-    s3 = record_event(db, task_id=1, stage="plan", kind="stage_finished", payload={})
+    s1 = record_event(db, run_id=1, stage="plan", kind="stage_started", payload={})
+    s2 = record_event(db, run_id=1, stage="plan", kind="agent_text", payload={"text": "hi"})
+    s3 = record_event(db, run_id=1, stage="plan", kind="stage_finished", payload={})
 
     # Assert
     assert (s1, s2, s3) == (1, 2, 3)
@@ -47,7 +47,7 @@ def test_record_event_atomic_under_threads(tmp_path: Path) -> None:
     # Assert
     assert seqs == list(range(1, n + 1))
 
-    events = read_events(db, task_id=1)
+    events = read_events(db, run_id=1)
     assert [e.seq for e in events] == list(range(1, n + 1))
     assert len({e.seq for e in events}) == n
 
@@ -57,10 +57,10 @@ def test_read_events_with_after_seq_returns_tail(tmp_path: Path) -> None:
     db = tmp_path / "f.sqlite"
     state.init_db(db)
     for i in range(5):
-        record_event(db, task_id=1, stage="plan", kind="agent_text", payload={"text": f"m{i}"})
+        record_event(db, run_id=1, stage="plan", kind="agent_text", payload={"text": f"m{i}"})
 
     # Act
-    tail = read_events(db, task_id=1, after_seq=3)
+    tail = read_events(db, run_id=1, after_seq=3)
 
     # Assert
     assert [e.seq for e in tail] == [4, 5]
@@ -75,8 +75,8 @@ def test_truncation_long_text(tmp_path: Path) -> None:
     long_text = "a" * (100 * 1024)  # 100KB
 
     # Act
-    record_event(db, task_id=1, stage="plan", kind="agent_text", payload={"text": long_text})
-    events = read_events(db, task_id=1)
+    record_event(db, run_id=1, stage="plan", kind="agent_text", payload={"text": long_text})
+    events = read_events(db, run_id=1)
 
     # Assert
     assert len(events) == 1
@@ -100,8 +100,8 @@ def test_truncation_short_critical_fields_untouched(tmp_path: Path) -> None:
     }
 
     # Act
-    record_event(db, task_id=1, stage="plan", kind="agent_result", payload=payload)
-    events = read_events(db, task_id=1)
+    record_event(db, run_id=1, stage="plan", kind="agent_result", payload=payload)
+    events = read_events(db, run_id=1)
 
     # Assert
     assert events[0].payload == payload
@@ -113,11 +113,11 @@ def test_stage_span_emits_started_and_finished_without_finish_call(tmp_path: Pat
     state.init_db(db)
 
     # Act
-    with stage_span(db, task_id=1, stage="plan"):
+    with stage_span(db, run_id=1, stage="plan"):
         pass
 
     # Assert
-    events = read_events(db, task_id=1)
+    events = read_events(db, run_id=1)
     kinds = [e.kind for e in events]
     assert kinds == ["stage_started", "stage_finished"]
     assert "duration_ms" in events[1].payload
@@ -130,11 +130,11 @@ def test_stage_span_emits_finished_with_output_from_finish(tmp_path: Path) -> No
     state.init_db(db)
 
     # Act
-    with stage_span(db, task_id=1, stage="plan") as finish:
+    with stage_span(db, run_id=1, stage="plan") as finish:
         finish(output={"k": "v"}, cost_usd=0.01, tokens_in=10, tokens_out=20)
 
     # Assert
-    events = read_events(db, task_id=1)
+    events = read_events(db, run_id=1)
     assert [e.kind for e in events] == ["stage_started", "stage_finished"]
     finished = events[1].payload
     assert finished["output"] == {"k": "v"}
@@ -151,11 +151,11 @@ def test_stage_span_emits_failed_on_exception(tmp_path: Path) -> None:
 
     # Act
     with pytest.raises(RuntimeError, match="boom"):
-        with stage_span(db, task_id=1, stage="implement"):
+        with stage_span(db, run_id=1, stage="implement"):
             raise RuntimeError("boom")
 
     # Assert
-    events = read_events(db, task_id=1)
+    events = read_events(db, run_id=1)
     kinds = [e.kind for e in events]
     assert kinds == ["stage_started", "stage_failed"]
     failed = events[1].payload
@@ -172,7 +172,7 @@ def test_stage_span_started_includes_input_and_agent_when_provided(tmp_path: Pat
     # Act
     with stage_span(
         db,
-        task_id=1,
+        run_id=1,
         stage="plan",
         input={"title": "t"},
         agent={"name": "stub", "model": "haiku"},
@@ -180,7 +180,7 @@ def test_stage_span_started_includes_input_and_agent_when_provided(tmp_path: Pat
         pass
 
     # Assert
-    events = read_events(db, task_id=1)
+    events = read_events(db, run_id=1)
     started = events[0].payload
     assert started["input"] == {"title": "t"}
     assert started["agent"] == {"name": "stub", "model": "haiku"}
@@ -192,13 +192,48 @@ def test_different_tasks_have_independent_seq(tmp_path: Path) -> None:
     state.init_db(db)
 
     # Act
-    s1_first = record_event(db, task_id=1, stage="plan", kind="stage_started", payload={})
-    s2_first = record_event(db, task_id=2, stage="plan", kind="stage_started", payload={})
-    s1_second = record_event(db, task_id=1, stage="plan", kind="stage_finished", payload={})
-    s2_second = record_event(db, task_id=2, stage="plan", kind="stage_finished", payload={})
+    s1_first = record_event(db, run_id=1, stage="plan", kind="stage_started", payload={})
+    s2_first = record_event(db, run_id=2, stage="plan", kind="stage_started", payload={})
+    s1_second = record_event(db, run_id=1, stage="plan", kind="stage_finished", payload={})
+    s2_second = record_event(db, run_id=2, stage="plan", kind="stage_finished", payload={})
 
     # Assert
     assert s1_first == 1
     assert s2_first == 1
     assert s1_second == 2
     assert s2_second == 2
+
+
+def test_record_event_writes_parent_event_seq(tmp_path: Path) -> None:
+    # Arrange
+    db = tmp_path / "f.sqlite"
+    state.init_db(db)
+
+    # Act
+    record_event(db, run_id=1, stage="plan", kind="stage_started", payload={})
+    record_event(
+        db,
+        run_id=1,
+        stage="plan",
+        kind="agent_text",
+        payload={"text": "child"},
+        parent_event_seq=1,
+    )
+    events = read_events(db, run_id=1)
+
+    # Assert
+    assert events[0].parent_event_seq is None
+    assert events[1].parent_event_seq == 1
+
+
+def test_record_event_default_parent_event_seq_is_none(tmp_path: Path) -> None:
+    # Arrange
+    db = tmp_path / "f.sqlite"
+    state.init_db(db)
+
+    # Act
+    record_event(db, run_id=1, stage="plan", kind="agent_text", payload={"text": "x"})
+    events = read_events(db, run_id=1)
+
+    # Assert
+    assert events[0].parent_event_seq is None

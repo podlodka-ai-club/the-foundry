@@ -2,7 +2,7 @@
 
 Named workflows sit between `pipeline.run_once` (fetch + batch loop) and the
 stage functions. Each workflow is a plain Python helper that drives existing
-stages, emits `task_events`, and persists task state — without introducing a
+stages, emits `run_events`, and persists task state — without introducing a
 second state runtime alongside SQLite/events.
 
 Defined workflows:
@@ -133,7 +133,7 @@ def _emit_synthetic_fetch_events(settings: Settings, task: Task) -> None:
     `fetch` runs as a batch before the workflow, so there is no stage_span
     wrapping it. Idempotent: if a stage_finished already exists, skip.
     """
-    existing = read_events(settings.db_path, task_id=task.id)
+    existing = read_events(settings.db_path, run_id=task.id)
     has_finished = any(
         e.stage == Stage.FETCH.value and e.kind == "stage_finished" for e in existing
     )

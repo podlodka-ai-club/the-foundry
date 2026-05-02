@@ -8,7 +8,7 @@ import pytest
 from api.bus import subscribe
 from foundry import state
 from foundry.events import record_event
-from foundry.models import Event
+from foundry.models import RunEvent
 
 
 @pytest.mark.asyncio
@@ -20,7 +20,7 @@ async def test_bus_subscribe_yields_catchup_events(tmp_path: Path) -> None:
         record_event(db, 1, "plan", "agent_text", {"text": f"msg-{i}"})
 
     # Act
-    received: list[Event] = []
+    received: list[RunEvent] = []
     agen = subscribe(db, task_id=1, poll_interval=0.05)
     try:
         for _ in range(3):
@@ -67,7 +67,7 @@ async def test_bus_subscribe_filters_by_after_seq(tmp_path: Path) -> None:
         record_event(db, 1, "plan", "agent_text", {"text": f"m{i}"})
 
     # Act
-    received: list[Event] = []
+    received: list[RunEvent] = []
     agen = subscribe(db, task_id=1, after_seq=3, poll_interval=0.05)
     try:
         for _ in range(2):

@@ -59,7 +59,7 @@ def test_run_once_happy_path(tmp_path: Path) -> None:
     assert final.pr_url == "https://example/pr/1"
 
     # Every per-task stage must frame its work with stage_started → stage_finished.
-    events = read_events(settings.db_path, task_id=final.id)
+    events = read_events(settings.db_path, run_id=final.id)
     per_stage_kinds: dict[str, list[str]] = {}
     for ev in events:
         per_stage_kinds.setdefault(ev.stage, []).append(ev.kind)
@@ -110,7 +110,7 @@ def test_fetch_events_are_not_duplicated_on_rerun(tmp_path: Path) -> None:
     state.upsert_task(settings.db_path, task)
     _run()
 
-    events = read_events(settings.db_path, task_id=task_id)
+    events = read_events(settings.db_path, run_id=task_id)
     fetch_started = [e for e in events if e.stage == "fetch" and e.kind == "stage_started"]
     fetch_finished = [e for e in events if e.stage == "fetch" and e.kind == "stage_finished"]
     assert len(fetch_started) == 1
@@ -158,7 +158,7 @@ def test_run_once_stage_failure_marks_failed(tmp_path: Path) -> None:
     assert final.pr_url is None
 
     # The failing stage must have emitted stage_failed (and not stage_finished).
-    events = read_events(settings.db_path, task_id=final.id)
+    events = read_events(settings.db_path, run_id=final.id)
     implement_kinds = [e.kind for e in events if e.stage == "implement"]
     assert "stage_started" in implement_kinds
     assert "stage_failed" in implement_kinds

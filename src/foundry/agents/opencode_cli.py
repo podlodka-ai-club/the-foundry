@@ -22,7 +22,7 @@ class OpencodeCliAgent:
     Provider auth is supplied via env (e.g. `OPENROUTER_API_KEY`).
 
     TODO(PR3.5): stream events via `iter_cli_jsonl` and emit `agent_tool` /
-    `agent_text` / `agent_result` into `task_events`. Opencode's NDJSON
+    `agent_text` / `agent_result` into `run_events`. Opencode's NDJSON
     (`type:"text"` with `part.text`, separate tool events) doesn't match
     Claude's `assistant`-content-block shape — the tool-normalizer needs an
     opencode adapter. Deferred to keep this PR focused on claude_cli.

@@ -9,6 +9,8 @@ from typing import Iterator
 from .models import Stage, Task, TaskStatus, _now_iso
 
 SCHEMA = """
+DROP TABLE IF EXISTS task_events;
+
 CREATE TABLE IF NOT EXISTS tasks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     repo TEXT NOT NULL,
@@ -27,18 +29,53 @@ CREATE TABLE IF NOT EXISTS tasks (
     UNIQUE (repo, issue_number)
 );
 
-CREATE TABLE IF NOT EXISTS task_events (
+CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    task_id INTEGER NOT NULL,
+    source TEXT NOT NULL,
+    external_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    parent_event_id INTEGER,
+    created_at TEXT NOT NULL,
+    UNIQUE (source, external_id)
+);
+
+CREATE TABLE IF NOT EXISTS runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    automation_id TEXT NOT NULL,
+    event_id INTEGER NOT NULL,
+    session_id TEXT NOT NULL,
+    session_seq INTEGER NOT NULL DEFAULT 1,
+    status TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    duration_sec REAL,
+    cost_usd REAL,
+    failure_kind TEXT,
+    failure_msg TEXT,
+    waiting_reason TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS run_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
     seq INTEGER NOT NULL,
+    parent_event_seq INTEGER,
     stage TEXT NOT NULL,
     kind TEXT NOT NULL,
     ts_ms INTEGER NOT NULL,
     payload TEXT NOT NULL,
-    UNIQUE (task_id, seq)
+    UNIQUE (run_id, seq)
 );
 
-CREATE INDEX IF NOT EXISTS idx_task_events_task_seq ON task_events(task_id, seq);
+CREATE INDEX IF NOT EXISTS idx_events_source_created ON events(source, created_at);
+CREATE INDEX IF NOT EXISTS idx_runs_automation ON runs(automation_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_runs_session ON runs(session_id, session_seq);
+CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
+CREATE INDEX IF NOT EXISTS idx_runs_event ON runs(event_id);
+CREATE INDEX IF NOT EXISTS idx_run_events_run_seq ON run_events(run_id, seq);
 """
 
 

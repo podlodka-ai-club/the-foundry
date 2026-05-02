@@ -78,7 +78,7 @@ class StubAgent:
             return
         record_event(
             self._settings.db_path,
-            task_id=task.id,
+            run_id=task.id,
             stage=self.stage.value,
             kind=kind,
             payload=payload,
