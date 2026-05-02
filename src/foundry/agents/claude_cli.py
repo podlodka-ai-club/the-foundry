@@ -110,7 +110,10 @@ class ClaudeCliAgent:
         )
 
     def get_session_id(self, task: AgentTask) -> str | None:
-        return self._sessions.get(task.id)
+        cached = self._sessions.get(task.id)
+        if cached is not None:
+            return cached
+        return self._settings.resume_session_id
 
     def _emit_for(self, task: AgentTask, event: dict[str, Any]) -> None:
         """Translate one streamed CLI event into `run_events` rows."""

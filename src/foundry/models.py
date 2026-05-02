@@ -29,6 +29,7 @@ class RunStatus(str, Enum):
     WAITING = "waiting"
     DONE = "done"
     FAILED = "failed"
+    UNCLEAR = "unclear"
 
 
 class FailureKind(str, Enum):
@@ -113,5 +114,6 @@ class Run:
     failure_kind: FailureKind | None = None
     failure_msg: str | None = None
     waiting_reason: str | None = None
+    agent_session_id: str | None = None
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)

@@ -322,6 +322,26 @@ def test_record_uses_parent_event_seq_from_context(tmp_path: Path) -> None:
         )
 
 
+def test_resume_session_id_fallback_used_when_no_per_task(tmp_path: Path) -> None:
+    """If no per-task session cache exists, AgentSettings.resume_session_id
+    is used to populate `--resume <id>` on the CLI command."""
+    agent = ClaudeCliAgent(settings=_settings(resume_session_id="sess-resumed"))
+    streamed = [
+        {"type": "system", "session_id": "sess-resumed"},
+        {"type": "result", "result": "ok"},
+    ]
+
+    with patch(
+        "foundry.agents.claude_cli.iter_cli_jsonl",
+        return_value=iter(streamed),
+    ) as run:
+        agent.apply(task=_task(), worktree=tmp_path, input="")
+
+    cmd = run.call_args.args[0]
+    assert "--resume" in cmd
+    assert cmd[cmd.index("--resume") + 1] == "sess-resumed"
+
+
 def test_claude_cli_skips_event_emission_without_db_path(tmp_path: Path) -> None:
     agent = ClaudeCliAgent(settings=_settings())  # db_path=None
     streamed = [

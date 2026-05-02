@@ -15,6 +15,7 @@ from . import pipeline, state
 from .config import ConfigError, Settings, load_settings
 from .listeners import EmitFn, Listener, build_listeners
 from .models import Stage, TaskStatus
+from .orchestrator import Orchestrator
 from .state import record_external_event
 
 log = structlog.get_logger()
@@ -127,7 +128,11 @@ def reset(task_id: int) -> None:
     click.echo(f"task {task_id} reset to pending")
 
 
-def _make_emit(source: str, db_path: Path) -> EmitFn:
+def _make_emit(
+    source: str,
+    db_path: Path,
+    orchestrator: Orchestrator | None = None,
+) -> EmitFn:
     async def emit(
         *,
         external_id: str,
@@ -135,7 +140,7 @@ def _make_emit(source: str, db_path: Path) -> EmitFn:
         payload: dict[str, Any],
         parent_event_id: int | None = None,
     ) -> int | None:
-        return await asyncio.to_thread(
+        event_id = await asyncio.to_thread(
             record_external_event,
             db_path,
             source=source,
@@ -144,6 +149,9 @@ def _make_emit(source: str, db_path: Path) -> EmitFn:
             payload=payload,
             parent_event_id=parent_event_id,
         )
+        if orchestrator is not None and event_id is not None:
+            orchestrator.hint(event_id)
+        return event_id
 
     return emit
 
@@ -152,12 +160,13 @@ async def _supervise(
     listener: Listener,
     db_path: Path,
     stop: asyncio.Event,
+    orchestrator: Orchestrator | None = None,
 ) -> None:
     """Run a listener with crash-loop backoff, exiting cleanly when ``stop`` fires."""
     backoff = 1.0
     while not stop.is_set():
         try:
-            emit = _make_emit(listener.source, db_path)
+            emit = _make_emit(listener.source, db_path, orchestrator)
             log.info("listener.start", listener=listener.id)
             await listener.listen(emit)
             log.info("listener.exited_clean", listener=listener.id)
@@ -194,13 +203,20 @@ async def _serve_async(settings: Settings) -> None:
             # Windows / non-main thread — caller will rely on Ctrl+C exception.
             pass
 
+    orchestrator = Orchestrator(settings)
     tasks = [
         asyncio.create_task(
-            _supervise(l, settings.db_path, stop),
+            _supervise(l, settings.db_path, stop, orchestrator),
             name=f"listener:{l.id}",
         )
         for l in listeners
     ]
+    tasks.append(
+        asyncio.create_task(
+            orchestrator.run_forever(stop),
+            name="orchestrator",
+        )
+    )
     await stop.wait()
     log.info("serve.stopping")
     for t in tasks:

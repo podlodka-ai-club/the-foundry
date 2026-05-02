@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import functools
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from fastmcp import FastMCP
 
 from foundry.events import record_event
+from foundry.skills import SKILL_REGISTRY
 
 mcp = FastMCP("foundry")
+
+_REGISTERED: set[str] = set()
 
 
 def _ctx() -> tuple[Path, int, int | None]:
@@ -68,6 +72,41 @@ def compact_context() -> dict[str, Any]:
 def call_subagent(name: str, prompt: str, id: str) -> dict[str, Any]:
     """Recursively invoke a registered sub-agent."""
     return call_subagent_impl(name=name, prompt=prompt, id=id)
+
+
+def _enabled_skills() -> set[str]:
+    raw = os.environ.get("FOUNDRY_ENABLED_SKILLS", "")
+    return {s.strip() for s in raw.split(",") if s.strip()}
+
+
+def _make_skill_wrapper(skill_id: str, impl: Callable[..., dict[str, Any]]):
+    @functools.wraps(impl)
+    def wrapper(**kwargs: Any) -> dict[str, Any]:
+        return impl(**kwargs)
+    # FastMCP reads the wrapper's docstring for the tool description; if the
+    # underlying skill has no docstring, fall back to a generic line so the
+    # tool is well-formed.
+    if not wrapper.__doc__:
+        wrapper.__doc__ = f"Foundry skill: {skill_id}"
+    return wrapper
+
+
+def _register_enabled_skills() -> None:
+    """Register skills listed in FOUNDRY_ENABLED_SKILLS as MCP tools.
+
+    Skills not in the env list stay disabled. Re-entrant safe via
+    `_REGISTERED` guard — calling twice is a no-op.
+    """
+    enabled = _enabled_skills()
+    for skill_id, impl in SKILL_REGISTRY.items():
+        if skill_id not in enabled or skill_id in _REGISTERED:
+            continue
+        wrapper = _make_skill_wrapper(skill_id, impl)
+        mcp.tool(name=skill_id)(wrapper)
+        _REGISTERED.add(skill_id)
+
+
+_register_enabled_skills()
 
 
 def main() -> None:

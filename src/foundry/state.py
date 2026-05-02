@@ -54,9 +54,19 @@ CREATE TABLE IF NOT EXISTS runs (
     failure_kind TEXT,
     failure_msg TEXT,
     waiting_reason TEXT,
+    agent_session_id TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS orchestrator_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    last_seen_event_id INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL
+);
+
+INSERT OR IGNORE INTO orchestrator_state (id, last_seen_event_id, updated_at)
+VALUES (1, 0, '');
 
 CREATE TABLE IF NOT EXISTS run_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -269,6 +279,8 @@ def get_event(db_path: Path, event_id: int) -> Event | None:
 
 def _row_to_run(row: sqlite3.Row) -> Run:
     failure_kind_raw = row["failure_kind"]
+    keys = row.keys()
+    agent_session_id = row["agent_session_id"] if "agent_session_id" in keys else None
     return Run(
         id=row["id"],
         automation_id=row["automation_id"],
@@ -283,6 +295,7 @@ def _row_to_run(row: sqlite3.Row) -> Run:
         failure_kind=FailureKind(failure_kind_raw) if failure_kind_raw else None,
         failure_msg=row["failure_msg"],
         waiting_reason=row["waiting_reason"],
+        agent_session_id=agent_session_id,
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )
@@ -331,6 +344,150 @@ def get_run(db_path: Path, run_id: int) -> Run | None:
     with _connect(db_path) as conn:
         row = conn.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
         return _row_to_run(row) if row else None
+
+
+def update_run(
+    db_path: Path,
+    run_id: int,
+    *,
+    status: RunStatus | None = None,
+    failure_kind: FailureKind | None = None,
+    failure_msg: str | None = None,
+    waiting_reason: str | None = None,
+    finished_at: str | None = None,
+    duration_sec: float | None = None,
+    cost_usd: float | None = None,
+    agent_session_id: str | None = None,
+) -> None:
+    """Partial update — None means leave as-is. Always bumps updated_at."""
+    sets: list[str] = []
+    params: list[Any] = []
+    if status is not None:
+        sets.append("status = ?")
+        params.append(status.value)
+    if failure_kind is not None:
+        sets.append("failure_kind = ?")
+        params.append(failure_kind.value)
+    if failure_msg is not None:
+        sets.append("failure_msg = ?")
+        params.append(failure_msg)
+    if waiting_reason is not None:
+        sets.append("waiting_reason = ?")
+        params.append(waiting_reason)
+    if finished_at is not None:
+        sets.append("finished_at = ?")
+        params.append(finished_at)
+    if duration_sec is not None:
+        sets.append("duration_sec = ?")
+        params.append(duration_sec)
+    if cost_usd is not None:
+        sets.append("cost_usd = ?")
+        params.append(cost_usd)
+    if agent_session_id is not None:
+        sets.append("agent_session_id = ?")
+        params.append(agent_session_id)
+
+    sets.append("updated_at = ?")
+    params.append(_now_iso())
+    params.append(run_id)
+
+    with _connect(db_path) as conn:
+        conn.execute(
+            f"UPDATE runs SET {', '.join(sets)} WHERE id = ?",
+            tuple(params),
+        )
+
+
+def finish_run(
+    db_path: Path,
+    run_id: int,
+    *,
+    status: RunStatus,
+    duration_sec: float,
+    cost_usd: float | None = None,
+    failure_kind: FailureKind | None = None,
+    failure_msg: str | None = None,
+) -> None:
+    """Set finished_at=now and apply terminal fields via update_run."""
+    update_run(
+        db_path,
+        run_id,
+        status=status,
+        duration_sec=duration_sec,
+        cost_usd=cost_usd,
+        failure_kind=failure_kind,
+        failure_msg=failure_msg,
+        finished_at=_now_iso(),
+    )
+
+
+def next_session_seq(db_path: Path, session_id: str) -> int:
+    """Return MAX(session_seq)+1 for the given session_id, or 1 if no rows."""
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT COALESCE(MAX(session_seq), 0) + 1 FROM runs WHERE session_id = ?",
+            (session_id,),
+        ).fetchone()
+        return int(row[0])
+
+
+def list_runs(
+    db_path: Path,
+    *,
+    automation_id: str | None = None,
+    status: RunStatus | None = None,
+    limit: int = 100,
+) -> list[Run]:
+    sql = "SELECT * FROM runs"
+    where: list[str] = []
+    params: list[Any] = []
+    if automation_id is not None:
+        where.append("automation_id = ?")
+        params.append(automation_id)
+    if status is not None:
+        where.append("status = ?")
+        params.append(status.value)
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY id DESC LIMIT ?"
+    params.append(limit)
+    with _connect(db_path) as conn:
+        rows = conn.execute(sql, tuple(params)).fetchall()
+        return [_row_to_run(r) for r in rows]
+
+
+def find_running_run(
+    db_path: Path,
+    *,
+    event_id: int,
+    automation_id: str,
+) -> Run | None:
+    """Return the running run for (event_id, automation_id), or None."""
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM runs WHERE event_id = ? AND automation_id = ? AND status = ? "
+            "ORDER BY id DESC LIMIT 1",
+            (event_id, automation_id, RunStatus.RUNNING.value),
+        ).fetchone()
+        return _row_to_run(row) if row else None
+
+
+def get_orchestrator_cursor(db_path: Path) -> int:
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT last_seen_event_id FROM orchestrator_state WHERE id = 1"
+        ).fetchone()
+        if row is None:
+            return 0
+        return int(row[0])
+
+
+def set_orchestrator_cursor(db_path: Path, last_seen_event_id: int) -> None:
+    with _connect(db_path) as conn:
+        conn.execute(
+            "UPDATE orchestrator_state SET last_seen_event_id = ?, updated_at = ? WHERE id = 1",
+            (last_seen_event_id, _now_iso()),
+        )
 
 
 def append_log(db_path: Path, task_id: int, stage: Stage, entry: dict) -> None:

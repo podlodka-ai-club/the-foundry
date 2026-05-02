@@ -98,3 +98,53 @@ async def test_make_emit_writes_to_db(tmp_path: Path) -> None:
             "SELECT source, external_id, kind FROM events WHERE id = 1"
         ).fetchone()
     assert row == ("github_issues", "owner/repo#1", "issue.opened")
+
+
+async def test_make_emit_hints_orchestrator_on_new_event(tmp_path: Path) -> None:
+    db_path = tmp_path / "ev.sqlite"
+    init_db(db_path)
+
+    hinted: list[int] = []
+
+    class _OrchStub:
+        def hint(self, event_id: int) -> None:
+            hinted.append(event_id)
+
+    emit = _make_emit("github_issues", db_path, _OrchStub())
+
+    event_id = await emit(
+        external_id="owner/repo#10",
+        kind="issue.opened",
+        payload={"title": "x"},
+    )
+
+    assert event_id is not None
+    assert hinted == [event_id]
+
+
+async def test_make_emit_does_not_hint_on_dedup(tmp_path: Path) -> None:
+    db_path = tmp_path / "ev.sqlite"
+    init_db(db_path)
+
+    hinted: list[int] = []
+
+    class _OrchStub:
+        def hint(self, event_id: int) -> None:
+            hinted.append(event_id)
+
+    emit = _make_emit("github_issues", db_path, _OrchStub())
+
+    first = await emit(
+        external_id="owner/repo#11",
+        kind="issue.opened",
+        payload={"title": "x"},
+    )
+    second = await emit(
+        external_id="owner/repo#11",
+        kind="issue.opened",
+        payload={"title": "x"},
+    )
+
+    assert first is not None
+    assert second is None  # dedupe path returns None
+    assert hinted == [first]

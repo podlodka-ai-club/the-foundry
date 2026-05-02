@@ -32,6 +32,9 @@ class AgentSettings:
     model: str = "haiku"
     db_path: Path | None = None
     mcp_config: Path | None = None
+    # Session id to resume into when no per-task cache hit exists. Used by
+    # C6 retry-flow; for C4 always None.
+    resume_session_id: str | None = None
 
     @classmethod
     def from_env(cls, stage: AgentStage, db_path: Path | None = None) -> AgentSettings:

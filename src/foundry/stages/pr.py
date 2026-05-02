@@ -30,7 +30,7 @@ def run(
     changes = [line for line in status.stdout.splitlines() if line.strip()]
     if not changes:
         raise RuntimeError("implement stage produced no changes — nothing to commit")
-    _sanity_check_changes(changes)
+    sanity_check_changes(changes)
 
     commit_message = f"foundry: task #{task.issue_number} — {task.issue_title}"
     shell.run(["git", "commit", "-m", commit_message], cwd=worktree_path)
@@ -75,7 +75,7 @@ MAX_FILES_PER_PR = 40
 FORBIDDEN_PATH_SUBSTRINGS = ("__pycache__", ".pyc", ".DS_Store", ".venv/")
 
 
-def _sanity_check_changes(porcelain_lines: list[str]) -> None:
+def sanity_check_changes(porcelain_lines: list[str]) -> None:
     """Reject suspicious worktree state before committing.
 
     Guards against agents accidentally copying parent-repo artifacts into the
@@ -95,3 +95,7 @@ def _sanity_check_changes(porcelain_lines: list[str]) -> None:
         raise RuntimeError(
             f"refusing to commit: forbidden paths in agent changes: {bad[:5]}"
         )
+
+
+# Backwards-compat alias — keep existing imports working.
+_sanity_check_changes = sanity_check_changes
