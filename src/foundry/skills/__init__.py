@@ -5,6 +5,8 @@ from typing import Any, Callable
 from .github import react_emoji_impl
 from .pr import commit_and_push_pr_impl
 from .run_lifecycle import mark_done_impl, mark_failed_impl
+from .run_tests import run_tests_impl
+from .wait_for_human import wait_for_human_impl
 from .worktree import open_worktree_impl
 
 SKILL_REGISTRY: dict[str, Callable[..., dict[str, Any]]] = {
@@ -13,6 +15,8 @@ SKILL_REGISTRY: dict[str, Callable[..., dict[str, Any]]] = {
     "react_emoji": react_emoji_impl,
     "mark_done": mark_done_impl,
     "mark_failed": mark_failed_impl,
+    "run_tests": run_tests_impl,
+    "wait_for_human": wait_for_human_impl,
 }
 
 ALWAYS_AVAILABLE: tuple[str, ...] = ("call_subagent", "mark_milestone", "compact_context")

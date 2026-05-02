@@ -1,18 +1,8 @@
 from __future__ import annotations
 
-from collections import Counter
-
 from fastapi import FastAPI, HTTPException
 
-from foundry import state
-from foundry.config import ConfigError, load_settings
-from foundry.events import read_events
-
-from .projections import UiTask, project_task
-from .sse import router as sse_router
-
 app = FastAPI(title="The Foundry API")
-app.include_router(sse_router)
 
 
 @app.get("/")
@@ -21,63 +11,23 @@ async def health_check() -> dict[str, str]:
     return {"status": "ok"}
 
 
-def _settings_or_raise():
-    try:
-        return load_settings()
-    except ConfigError as exc:
-        raise HTTPException(status_code=500, detail=f"Configuration error: {exc}")
+# --- Deprecated /api/tasks/* endpoints --------------------------------------
+# Kept as stubs after the C5 legacy purge. Real /api/runs/* surface lands in
+# C6; until then these return empty/404 so the existing UI does not crash.
 
 
-@app.get("/api/tasks", response_model=list[UiTask])
-async def get_tasks() -> list[UiTask]:
-    """List all tasks with aggregated stage projections (no events)."""
-    settings = _settings_or_raise()
-    state.init_db(settings.db_path)
-
-    tasks = state.list_tasks(settings.db_path)
-    result: list[UiTask] = []
-    for task in tasks:
-        events = read_events(settings.db_path, task.id) if task.id is not None else []
-        result.append(project_task(task, events, include_events=False))
-    return result
+@app.get("/api/tasks")
+async def get_tasks() -> list[dict]:
+    """Deprecated since C5; awaiting C6."""
+    return []
 
 
-@app.get("/api/tasks/{task_id}", response_model=UiTask)
-async def get_task(task_id: int) -> UiTask:
-    """Full task projection including the last 200 events."""
-    settings = _settings_or_raise()
-    state.init_db(settings.db_path)
-
-    task = state.get_task(settings.db_path, task_id)
-    if task is None:
-        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
-    events = read_events(settings.db_path, task_id)
-    return project_task(task, events, include_events=True, events_limit=200)
+@app.get("/api/tasks/{task_id}")
+async def get_task(task_id: int) -> dict:
+    raise HTTPException(status_code=404, detail="Deprecated since C5; awaiting C6")
 
 
 @app.get("/api/repos")
 async def get_repos() -> list[dict]:
-    """Aggregate task counts per repo, grouped by status."""
-    settings = _settings_or_raise()
-    state.init_db(settings.db_path)
-
-    tasks = state.list_tasks(settings.db_path)
-    per_repo: dict[str, Counter[str]] = {}
-    for task in tasks:
-        per_repo.setdefault(task.repo, Counter())[task.status.value.upper()] += 1
-
-    out: list[dict] = []
-    for repo in sorted(per_repo.keys()):
-        counts = per_repo[repo]
-        out.append(
-            {
-                "repo": repo,
-                "counts": {
-                    "RUNNING": counts.get("RUNNING", 0),
-                    "DONE": counts.get("DONE", 0),
-                    "FAILED": counts.get("FAILED", 0),
-                    "PENDING": counts.get("PENDING", 0),
-                },
-            }
-        )
-    return out
+    """Deprecated since C5; awaiting C6."""
+    return []

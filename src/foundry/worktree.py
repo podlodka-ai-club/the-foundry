@@ -28,7 +28,7 @@ def ensure_base_repo(worktree_root: Path, source_repo: str) -> Path:
 
 def create_worktree(
     worktree_root: Path,
-    task_id: int,
+    run_id: int,
     base_branch: str = "main",
 ) -> tuple[Path, str]:
     base = base_repo_path(worktree_root)
@@ -37,8 +37,8 @@ def create_worktree(
             f"base repo not found at {base} — call ensure_base_repo first"
         )
 
-    worktree_path = (worktree_root / f"task-{task_id}").resolve()
-    branch_name = f"foundry/task-{task_id}"
+    worktree_path = (worktree_root / f"task-{run_id}").resolve()
+    branch_name = f"foundry/task-{run_id}"
 
     if worktree_path.exists():
         cleanup_worktree(base, worktree_path)

@@ -1,4 +1,4 @@
-"""commit_and_push_pr skill — same logic as stages/pr.py:run, but Task-free.
+"""commit_and_push_pr skill — Task-free PR creation logic.
 
 Reads worktree / branch / repos / issue number from environment variables set
 by the orchestrator; returns a structured result instead of raising.
@@ -11,7 +11,31 @@ from pathlib import Path
 from typing import Any
 
 from foundry import shell
-from foundry.stages.pr import sanity_check_changes
+
+MAX_FILES_PER_PR = 40
+FORBIDDEN_PATH_SUBSTRINGS = ("__pycache__", ".pyc", ".DS_Store", ".venv/")
+
+
+def sanity_check_changes(porcelain_lines: list[str]) -> None:
+    """Reject suspicious worktree state before committing.
+
+    Guards against agents accidentally copying parent-repo artifacts into the
+    sandbox: build caches, dotfiles, or very large file sets.
+    """
+    if len(porcelain_lines) > MAX_FILES_PER_PR:
+        raise RuntimeError(
+            f"refusing to commit: agent produced {len(porcelain_lines)} changed "
+            f"files (limit {MAX_FILES_PER_PR}) — likely a sandbox escape"
+        )
+    bad: list[str] = []
+    for line in porcelain_lines:
+        path = line[3:].strip() if len(line) > 3 else line.strip()
+        if any(sub in path for sub in FORBIDDEN_PATH_SUBSTRINGS):
+            bad.append(path)
+    if bad:
+        raise RuntimeError(
+            f"refusing to commit: forbidden paths in agent changes: {bad[:5]}"
+        )
 
 
 def commit_and_push_pr_impl(*, title: str, body: str = "") -> dict[str, Any]:
@@ -70,4 +94,9 @@ def commit_and_push_pr_impl(*, title: str, body: str = "") -> dict[str, Any]:
     return {"ok": True, "pr_url": pr_url}
 
 
-__all__ = ["commit_and_push_pr_impl"]
+__all__ = [
+    "commit_and_push_pr_impl",
+    "sanity_check_changes",
+    "MAX_FILES_PER_PR",
+    "FORBIDDEN_PATH_SUBSTRINGS",
+]

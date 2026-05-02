@@ -16,6 +16,7 @@ The orchestrator has two ways to discover work:
 from __future__ import annotations
 
 import asyncio
+import collections
 import time
 from pathlib import Path
 from typing import Any
@@ -275,13 +276,15 @@ def _load_automation_prompt(automation: Automation, event: Event) -> str:
         return automation.description
     template = p.read_text(encoding="utf-8")
     payload = event.payload or {}
+    ctx: dict[str, Any] = collections.defaultdict(str, {
+        "title": payload.get("title", ""),
+        "body": payload.get("body", ""),
+        "repo": payload.get("repo", ""),
+        "number": payload.get("number", ""),
+        "labels": ", ".join(payload.get("labels") or []),
+        **payload,
+    })
     try:
-        return template.format_map(
-            {
-                **payload,
-                "title": payload.get("title", ""),
-                "body": payload.get("body", ""),
-            }
-        )
+        return template.format_map(ctx)
     except Exception:
         return template

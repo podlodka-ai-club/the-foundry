@@ -20,7 +20,6 @@ class Settings:
     db_path: Path
     poll_interval_seconds: int
     github_token: str | None = None
-    max_implement_attempts: int = 2
     # Listeners enabled by id. Empty tuple = all listeners (default).
     listeners_enabled: tuple[str, ...] = ()
     github_poll_sec: int = 30
@@ -54,7 +53,6 @@ def load_settings(env_path: Path | None = None) -> Settings:
         db_path=Path(os.environ.get("DB_PATH", "./data/foundry.sqlite")).resolve(),
         poll_interval_seconds=int(os.environ.get("POLL_INTERVAL_SECONDS", "30")),
         github_token=token,
-        max_implement_attempts=int(os.environ.get("MAX_IMPLEMENT_ATTEMPTS", "2")),
         listeners_enabled=listeners_enabled,
         github_poll_sec=int(os.environ.get("GITHUB_POLL_SEC", "30")),
     )

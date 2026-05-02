@@ -36,7 +36,6 @@ def _settings(tmp_path: Path) -> Settings:
         db_path=tmp_path / "f.sqlite",
         poll_interval_seconds=30,
         github_token=None,
-        max_implement_attempts=2,
         listeners_enabled=(),
         github_poll_sec=30,
     )

@@ -18,11 +18,19 @@ class Automation:
 DEV_TASK = Automation(
     id="dev_task",
     name="GitHub issue → PR",
-    description="Implement labeled GitHub issues; will be reworked in C5.",
+    description="Реализует GitHub issue и открывает PR.",
     triggers=("github_issues",),
-    agent={"backend": "claude_cli", "model": None},
+    agent={"backend": "claude_cli", "model": "sonnet"},
     prompt_path="prompts/dev_task.md",
-    skills=(),
+    skills=(
+        "open_worktree",
+        "run_tests",
+        "wait_for_human",
+        "commit_and_push_pr",
+        "react_emoji",
+        "mark_done",
+        "mark_failed",
+    ),
 )
 
 

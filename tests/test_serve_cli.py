@@ -27,7 +27,6 @@ def _settings(
         db_path=tmp_path / "foundry.sqlite",
         poll_interval_seconds=30,
         github_token=None,
-        max_implement_attempts=2,
         listeners_enabled=listeners_enabled,
         github_poll_sec=30,
     )
@@ -39,6 +38,14 @@ def test_serve_help() -> None:
 
     assert result.exit_code == 0
     assert "daemon" in result.output.lower() or "listener" in result.output.lower()
+
+
+def test_runs_help() -> None:
+    runner = CliRunner()
+    result = runner.invoke(main, ["runs", "--help"])
+
+    assert result.exit_code == 0
+    assert "runs" in result.output.lower()
 
 
 def test_build_listeners_empty_filter_returns_all(tmp_path: Path) -> None:

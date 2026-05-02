@@ -45,6 +45,24 @@ def test_automations_for_trigger_filters() -> None:
     assert empty == []
 
 
+def test_dev_task_skills_contain_required() -> None:
+    # Arrange
+    auto = get_automation("dev_task")
+    assert auto is not None
+
+    # Assert
+    required = {
+        "run_tests",
+        "wait_for_human",
+        "commit_and_push_pr",
+        "mark_done",
+        "mark_failed",
+        "open_worktree",
+        "react_emoji",
+    }
+    assert required.issubset(set(auto.skills))
+
+
 def test_automation_is_frozen() -> None:
     # Arrange
     automation = AUTOMATIONS[0]
