@@ -21,7 +21,7 @@ async def test_bus_subscribe_yields_catchup_events(tmp_path: Path) -> None:
 
     # Act
     received: list[RunEvent] = []
-    agen = subscribe(db, task_id=1, poll_interval=0.05)
+    agen = subscribe(db, run_id=1, poll_interval=0.05)
     try:
         for _ in range(3):
             received.append(await asyncio.wait_for(agen.__anext__(), timeout=1.0))
@@ -39,7 +39,7 @@ async def test_bus_subscribe_yields_live_events_after_catchup(tmp_path: Path) ->
     db = tmp_path / "f.sqlite"
     state.init_db(db)
 
-    agen = subscribe(db, task_id=1, poll_interval=0.05)
+    agen = subscribe(db, run_id=1, poll_interval=0.05)
 
     # Act: schedule a write after the generator enters its poll loop.
     async def _publish_later() -> None:
@@ -68,7 +68,7 @@ async def test_bus_subscribe_filters_by_after_seq(tmp_path: Path) -> None:
 
     # Act
     received: list[RunEvent] = []
-    agen = subscribe(db, task_id=1, after_seq=3, poll_interval=0.05)
+    agen = subscribe(db, run_id=1, after_seq=3, poll_interval=0.05)
     try:
         for _ in range(2):
             received.append(await asyncio.wait_for(agen.__anext__(), timeout=1.0))

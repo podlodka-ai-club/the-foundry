@@ -7,6 +7,7 @@ from typing import Any
 
 
 class RunStatus(str, Enum):
+    PENDING = "pending"
     RUNNING = "running"
     WAITING = "waiting"
     DONE = "done"

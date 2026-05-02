@@ -24,18 +24,18 @@ POLL_SEC = _default_poll_interval()
 
 async def subscribe(
     db_path: Path,
-    task_id: int,
+    run_id: int,
     after_seq: int | None = None,
     *,
     poll_interval: float | None = None,
     is_disconnected=None,
 ) -> AsyncIterator[RunEvent]:
-    """Yield events for `task_id` in seq order by polling SQLite.
+    """Yield events for `run_id` in seq order by polling SQLite.
 
-    Works across processes — the pipeline writer and the API reader do not
-    need to share memory. Catch-up and live phases are unified: every tick
-    is a single `read_events(..., after_seq=last_seen)` call. SQLite reads
-    are offloaded to a worker thread so uvicorn's event loop stays
+    Works across processes — the orchestrator writer and the API reader do
+    not need to share memory. Catch-up and live phases are unified: every
+    tick is a single `read_events(..., after_seq=last_seen)` call. SQLite
+    reads are offloaded to a worker thread so uvicorn's event loop stays
     responsive.
     """
     interval = POLL_SEC if poll_interval is None else poll_interval
@@ -43,7 +43,7 @@ async def subscribe(
 
     while True:
         events = await asyncio.to_thread(
-            read_events, db_path, task_id, after_seq=last_seen
+            read_events, db_path, run_id, after_seq=last_seen
         )
         for ev in events:
             last_seen = ev.seq

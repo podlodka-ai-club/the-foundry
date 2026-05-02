@@ -27,7 +27,11 @@ from foundry import state, worktree
 from foundry.agents.base import AgentStage, AgentTask
 from foundry.agents.config import AgentSettings
 from foundry.agents.factory import make_agent
-from foundry.automations.registry import Automation, automations_for_trigger
+from foundry.automations.registry import (
+    Automation,
+    automations_for_trigger,
+    get_automation,
+)
 from foundry.config import Settings
 from foundry.events import stage_span
 from foundry.mcp.config import (
@@ -79,6 +83,50 @@ class Orchestrator:
                 await asyncio.to_thread(
                     state.set_orchestrator_cursor, self.settings.db_path, cursor
                 )
+
+            # Pick up runs the API created with status=PENDING (e.g. retries).
+            await self._pickup_pending_runs()
+
+    async def _pickup_pending_runs(self) -> None:
+        """Promote PENDING runs (created by the API for retry) to RUNNING."""
+        pending_runs = await asyncio.to_thread(
+            state.list_runs,
+            self.settings.db_path,
+            status=RunStatus.PENDING,
+            limit=20,
+        )
+        for run in pending_runs:
+            if run.id is None:
+                continue
+            # Atomic-ish: flip to RUNNING before dispatch so we don't pick the
+            # same row twice on the next scan loop.
+            await asyncio.to_thread(
+                state.update_run,
+                self.settings.db_path,
+                run.id,
+                status=RunStatus.RUNNING,
+            )
+            automation = get_automation(run.automation_id)
+            event = await asyncio.to_thread(
+                state.get_event, self.settings.db_path, run.event_id
+            )
+            if automation is None or event is None:
+                log.warning(
+                    "orchestrator.pending_run_missing_dep",
+                    run_id=run.id,
+                    automation_id=run.automation_id,
+                    event_id=run.event_id,
+                )
+                continue
+            asyncio.create_task(
+                self.execute_run(
+                    run_id=run.id,
+                    automation=automation,
+                    event=event,
+                    session_id=run.session_id,
+                ),
+                name=f"run:{run.id}",
+            )
 
     async def handle_event(self, event: Event) -> list[int]:
         triggers = _trigger_ids_for_event(event)
@@ -165,12 +213,19 @@ class Orchestrator:
                 cfg_path = mcp_config_path_for_run(self.settings.worktree_root, run_id)
                 write_mcp_config(cfg_path, cfg)
 
+                # Resume the agent's CLI session when retrying. A retry-run
+                # is fresh, but earlier runs sharing the same `session_id`
+                # may already carry an `agent_session_id` we can resume.
+                resume_session_id = await asyncio.to_thread(
+                    _find_resume_session_id, db, session_id, run_id
+                )
                 agent_settings = AgentSettings(
                     stage=AgentStage.IMPLEMENT,
                     backend=automation.agent.get("backend", "stub"),
                     model=automation.agent.get("model") or "haiku",
                     db_path=db,
                     mcp_config=cfg_path,
+                    resume_session_id=resume_session_id,
                 )
                 agent = make_agent(agent_settings)
                 prompt = _load_automation_prompt(automation, event)
@@ -256,6 +311,23 @@ class Orchestrator:
             if number is not None:
                 env["FOUNDRY_ISSUE_NUMBER"] = str(number)
         return env
+
+
+def _find_resume_session_id(
+    db_path: Path, session_id: str, current_run_id: int
+) -> str | None:
+    """Return the agent_session_id from the most recent prior run sharing
+    `session_id`, or None if there is no prior run with one. Excludes the
+    current run."""
+    runs = state.list_runs(db_path, limit=200)
+    for r in runs:
+        if r.id == current_run_id:
+            continue
+        if r.session_id != session_id:
+            continue
+        if r.agent_session_id:
+            return r.agent_session_id
+    return None
 
 
 def _trigger_ids_for_event(event: Event) -> list[str]:

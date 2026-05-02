@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import App from "./App";
 import "./styles.css";
+import "./styles-v2.css";
 
 const queryClient = new QueryClient({
   defaultOptions: {

@@ -186,6 +186,26 @@ def test_find_running_run_no_match_returns_none(tmp_path: Path) -> None:
     assert find_running_run(db, event_id=99, automation_id="a") is None
 
 
+def test_run_status_pending_round_trips(tmp_path: Path) -> None:
+    db = tmp_path / "f.sqlite"
+    init_db(db)
+
+    run_id = create_run(
+        db,
+        automation_id="a",
+        event_id=1,
+        session_id="s",
+        status=RunStatus.PENDING,
+    )
+
+    run = get_run(db, run_id)
+    assert run is not None
+    assert run.status is RunStatus.PENDING
+
+    rs = list_runs(db, status=RunStatus.PENDING)
+    assert {r.id for r in rs} == {run_id}
+
+
 def test_run_status_unclear_round_trips(tmp_path: Path) -> None:
     db = tmp_path / "f.sqlite"
     init_db(db)

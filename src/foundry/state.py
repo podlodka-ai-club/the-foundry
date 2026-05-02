@@ -346,6 +346,27 @@ def find_running_run(
         return _row_to_run(row) if row else None
 
 
+def count_runs_by_automation_status(
+    db_path: Path,
+) -> dict[tuple[str, str], int]:
+    """Returns {(automation_id, status): count} aggregated over all runs."""
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT automation_id, status, COUNT(*) AS n "
+            "FROM runs GROUP BY automation_id, status"
+        ).fetchall()
+        return {(row["automation_id"], row["status"]): int(row["n"]) for row in rows}
+
+
+def last_event_at_by_source(db_path: Path) -> dict[str, str]:
+    """Returns {source: max(created_at)} across the events table."""
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT source, MAX(created_at) AS last_seen FROM events GROUP BY source"
+        ).fetchall()
+        return {row["source"]: row["last_seen"] for row in rows if row["last_seen"]}
+
+
 def get_orchestrator_cursor(db_path: Path) -> int:
     with _connect(db_path) as conn:
         row = conn.execute(
