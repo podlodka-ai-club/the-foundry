@@ -4,9 +4,9 @@ import json
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
 
-from .models import Stage, Task, TaskStatus, _now_iso
+from .models import Event, Stage, Task, TaskStatus, _now_iso
 
 SCHEMA = """
 DROP TABLE IF EXISTS task_events;
@@ -198,6 +198,73 @@ def upsert_task(db_path: Path, task: Task) -> Task:
                 ),
             )
         return task
+
+
+def _row_to_event(row: sqlite3.Row) -> Event:
+    return Event(
+        id=row["id"],
+        source=row["source"],
+        external_id=row["external_id"],
+        kind=row["kind"],
+        payload=json.loads(row["payload"]),
+        parent_event_id=row["parent_event_id"],
+        created_at=row["created_at"],
+    )
+
+
+def record_external_event(
+    db_path: Path,
+    *,
+    source: str,
+    external_id: str,
+    kind: str,
+    payload: dict[str, Any],
+    parent_event_id: int | None = None,
+) -> int | None:
+    """Insert a top-level trigger event with dedupe on (source, external_id).
+
+    Uses INSERT … ON CONFLICT(source, external_id) DO NOTHING. Returns the
+    inserted row id on success, or None when a row with the same
+    (source, external_id) already exists (duplicate).
+    """
+    payload_json = json.dumps(payload, ensure_ascii=False)
+    created_at = _now_iso()
+    with _connect(db_path) as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO events (source, external_id, kind, payload, parent_event_id, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(source, external_id) DO NOTHING
+            """,
+            (source, external_id, kind, payload_json, parent_event_id, created_at),
+        )
+        if cur.rowcount == 1:
+            return cur.lastrowid
+        return None
+
+
+def read_events_after(
+    db_path: Path,
+    *,
+    after_id: int = 0,
+    limit: int = 100,
+) -> list[Event]:
+    """Return events with id > after_id in ASC order, capped by limit."""
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM events WHERE id > ? ORDER BY id ASC LIMIT ?",
+            (after_id, limit),
+        ).fetchall()
+        return [_row_to_event(r) for r in rows]
+
+
+def get_event(db_path: Path, event_id: int) -> Event | None:
+    """Single-row read by id, returns None if missing."""
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM events WHERE id = ?", (event_id,)
+        ).fetchone()
+        return _row_to_event(row) if row else None
 
 
 def append_log(db_path: Path, task_id: int, stage: Stage, entry: dict) -> None:

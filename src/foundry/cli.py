@@ -1,14 +1,23 @@
 from __future__ import annotations
 
+import asyncio
+import random
+import signal
 import sys
 import time
+from pathlib import Path
+from typing import Any
 
 import click
 import structlog
 
 from . import pipeline, state
-from .config import ConfigError, load_settings
+from .config import ConfigError, Settings, load_settings
+from .listeners import EmitFn, Listener, build_listeners
 from .models import Stage, TaskStatus
+from .state import record_external_event
+
+log = structlog.get_logger()
 
 
 def _configure_logging() -> None:
@@ -116,6 +125,101 @@ def reset(task_id: int) -> None:
     task.pr_url = None
     state.upsert_task(settings.db_path, task)
     click.echo(f"task {task_id} reset to pending")
+
+
+def _make_emit(source: str, db_path: Path) -> EmitFn:
+    async def emit(
+        *,
+        external_id: str,
+        kind: str,
+        payload: dict[str, Any],
+        parent_event_id: int | None = None,
+    ) -> int | None:
+        return await asyncio.to_thread(
+            record_external_event,
+            db_path,
+            source=source,
+            external_id=external_id,
+            kind=kind,
+            payload=payload,
+            parent_event_id=parent_event_id,
+        )
+
+    return emit
+
+
+async def _supervise(
+    listener: Listener,
+    db_path: Path,
+    stop: asyncio.Event,
+) -> None:
+    """Run a listener with crash-loop backoff, exiting cleanly when ``stop`` fires."""
+    backoff = 1.0
+    while not stop.is_set():
+        try:
+            emit = _make_emit(listener.source, db_path)
+            log.info("listener.start", listener=listener.id)
+            await listener.listen(emit)
+            log.info("listener.exited_clean", listener=listener.id)
+            return
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception(
+                "listener.crashed", listener=listener.id, backoff=backoff
+            )
+            jitter = backoff * (0.8 + random.random() * 0.4)
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=jitter)
+                return
+            except asyncio.TimeoutError:
+                pass
+            backoff = min(backoff * 2, 60.0)
+
+
+async def _serve_async(settings: Settings) -> None:
+    listeners = build_listeners(settings)
+    log.info("serve.start", listener_ids=[l.id for l in listeners])
+
+    if not listeners:
+        log.info("serve.no_listeners_enabled")
+        return
+
+    loop = asyncio.get_running_loop()
+    stop = asyncio.Event()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(sig, stop.set)
+        except NotImplementedError:
+            # Windows / non-main thread — caller will rely on Ctrl+C exception.
+            pass
+
+    tasks = [
+        asyncio.create_task(
+            _supervise(l, settings.db_path, stop),
+            name=f"listener:{l.id}",
+        )
+        for l in listeners
+    ]
+    await stop.wait()
+    log.info("serve.stopping")
+    for t in tasks:
+        t.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
+    log.info("serve.stopped")
+
+
+@main.command()
+def serve() -> None:
+    """Run listeners as a long-lived asyncio daemon (writes events to DB)."""
+    try:
+        settings = load_settings()
+    except ConfigError as e:
+        click.echo(f"config error: {e}", err=True)
+        sys.exit(2)
+
+    state.init_db(settings.db_path)
+    asyncio.run(_serve_async(settings))
 
 
 if __name__ == "__main__":

@@ -21,6 +21,9 @@ class Settings:
     poll_interval_seconds: int
     github_token: str | None = None
     max_implement_attempts: int = 2
+    # Listeners enabled by id. Empty tuple = all listeners (default).
+    listeners_enabled: tuple[str, ...] = ()
+    github_poll_sec: int = 30
 
 
 def load_settings(env_path: Path | None = None) -> Settings:
@@ -36,6 +39,13 @@ def load_settings(env_path: Path | None = None) -> Settings:
 
     token = os.environ.get("GITHUB_TOKEN", "").strip() or None
 
+    listeners_raw = os.environ.get("LISTENERS_ENABLED", "").strip()
+    listeners_enabled: tuple[str, ...] = (
+        tuple(s.strip() for s in listeners_raw.split(",") if s.strip())
+        if listeners_raw
+        else ()
+    )
+
     return Settings(
         source_repo=source_repo,
         target_repo=target_repo,
@@ -45,4 +55,6 @@ def load_settings(env_path: Path | None = None) -> Settings:
         poll_interval_seconds=int(os.environ.get("POLL_INTERVAL_SECONDS", "30")),
         github_token=token,
         max_implement_attempts=int(os.environ.get("MAX_IMPLEMENT_ATTEMPTS", "2")),
+        listeners_enabled=listeners_enabled,
+        github_poll_sec=int(os.environ.get("GITHUB_POLL_SEC", "30")),
     )
