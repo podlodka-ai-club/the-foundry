@@ -3,7 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from foundry.agents import AgentSettings, AgentStage, AgentTask
+from foundry.agents.context import agent_event_context
 from foundry.agents.stub import StubAgent
+from foundry.events import read_events
+from foundry.state import init_db
 
 
 def _task() -> AgentTask:
@@ -63,3 +66,21 @@ def test_stub_get_session_id_is_always_none() -> None:
     agent = StubAgent(settings=AgentSettings(stage=AgentStage.IMPLEMENT))
 
     assert agent.get_session_id(_task()) is None
+
+
+def test_record_uses_parent_event_seq_from_context(tmp_path: Path) -> None:
+    db = tmp_path / "f.sqlite"
+    init_db(db)
+    agent = StubAgent(
+        settings=AgentSettings(stage=AgentStage.IMPLEMENT, db_path=db)
+    )
+
+    with agent_event_context(parent_event_seq=42):
+        agent.apply(task=_task(), worktree=tmp_path, input="")
+
+    events = read_events(db, run_id=7)
+    assert events, "expected events to be persisted"
+    for ev in events:
+        assert ev.parent_event_seq == 42, (
+            f"event {ev.kind} seq={ev.seq} has parent_event_seq={ev.parent_event_seq}"
+        )

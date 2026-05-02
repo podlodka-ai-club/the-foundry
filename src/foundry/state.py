@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-from .models import Event, Stage, Task, TaskStatus, _now_iso
+from .models import Event, FailureKind, Run, RunStatus, Stage, Task, TaskStatus, _now_iso
 
 SCHEMA = """
 DROP TABLE IF EXISTS task_events;
@@ -265,6 +265,72 @@ def get_event(db_path: Path, event_id: int) -> Event | None:
             "SELECT * FROM events WHERE id = ?", (event_id,)
         ).fetchone()
         return _row_to_event(row) if row else None
+
+
+def _row_to_run(row: sqlite3.Row) -> Run:
+    failure_kind_raw = row["failure_kind"]
+    return Run(
+        id=row["id"],
+        automation_id=row["automation_id"],
+        event_id=row["event_id"],
+        session_id=row["session_id"],
+        session_seq=row["session_seq"],
+        status=RunStatus(row["status"]),
+        started_at=row["started_at"],
+        finished_at=row["finished_at"],
+        duration_sec=row["duration_sec"],
+        cost_usd=row["cost_usd"],
+        failure_kind=FailureKind(failure_kind_raw) if failure_kind_raw else None,
+        failure_msg=row["failure_msg"],
+        waiting_reason=row["waiting_reason"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
+def create_run(
+    db_path: Path,
+    *,
+    automation_id: str,
+    event_id: int,
+    session_id: str,
+    session_seq: int = 1,
+    status: RunStatus = RunStatus.RUNNING,
+) -> int:
+    """Insert a new run, return its id.
+
+    Minimal lifecycle for C3 — the full lifecycle (finish / fail / waiting)
+    lands in C4. Timestamps for `started_at` / `created_at` / `updated_at`
+    are set to `_now_iso()`.
+    """
+    now = _now_iso()
+    with _connect(db_path) as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO runs (
+                automation_id, event_id, session_id, session_seq,
+                status, started_at, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                automation_id,
+                event_id,
+                session_id,
+                session_seq,
+                status.value,
+                now,
+                now,
+                now,
+            ),
+        )
+        return int(cur.lastrowid)
+
+
+def get_run(db_path: Path, run_id: int) -> Run | None:
+    with _connect(db_path) as conn:
+        row = conn.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
+        return _row_to_run(row) if row else None
 
 
 def append_log(db_path: Path, task_id: int, stage: Stage, entry: dict) -> None:

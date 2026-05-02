@@ -72,3 +72,29 @@ def test_from_env_default_max_turns_per_stage_differs() -> None:
 
     assert verify.max_turns == 20
     assert implement.max_turns == 50
+
+
+def test_from_env_mcp_config_default_is_none() -> None:
+    settings = AgentSettings.from_env(AgentStage.IMPLEMENT)
+
+    assert settings.mcp_config is None
+
+
+def test_from_env_mcp_config_global(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENT_MCP_CONFIG", "/tmp/foo.json")
+
+    settings = AgentSettings.from_env(AgentStage.IMPLEMENT)
+
+    assert settings.mcp_config is not None
+    assert str(settings.mcp_config) == "/tmp/foo.json"
+
+
+def test_from_env_mcp_config_per_stage_beats_global(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENT_MCP_CONFIG", "/tmp/global.json")
+    monkeypatch.setenv("AGENT_IMPLEMENT_MCP_CONFIG", "/tmp/impl.json")
+
+    impl = AgentSettings.from_env(AgentStage.IMPLEMENT)
+    plan = AgentSettings.from_env(AgentStage.PLAN)
+
+    assert str(impl.mcp_config) == "/tmp/impl.json"
+    assert str(plan.mcp_config) == "/tmp/global.json"

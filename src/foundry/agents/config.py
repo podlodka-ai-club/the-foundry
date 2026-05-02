@@ -31,6 +31,7 @@ class AgentSettings:
     max_turns: int = 30
     model: str = "haiku"
     db_path: Path | None = None
+    mcp_config: Path | None = None
 
     @classmethod
     def from_env(cls, stage: AgentStage, db_path: Path | None = None) -> AgentSettings:
@@ -50,6 +51,8 @@ class AgentSettings:
             os.getenv(f"AGENT_{key}_MAX_TURNS")
             or os.getenv("AGENT_MAX_TURNS", str(DEFAULT_MAX_TURNS[stage]))
         )
+        mcp_config_raw = os.getenv(f"AGENT_{key}_MCP_CONFIG") or os.getenv("AGENT_MCP_CONFIG")
+        mcp_config = Path(mcp_config_raw) if mcp_config_raw else None
         return cls(
             stage=stage,
             backend=os.getenv(f"AGENT_{key}_BACKEND") or os.getenv("CODING_AGENT", "stub"),
@@ -57,4 +60,5 @@ class AgentSettings:
             max_turns=max_turns,
             model=model,
             db_path=db_path,
+            mcp_config=mcp_config,
         )

@@ -228,3 +228,4 @@ npm run build                            # tsc -b && vite build
 - [docs/specs/observability-ui.md](docs/specs/observability-ui.md), [docs/specs/observability-ui-plan.md](docs/specs/observability-ui-plan.md) — спецификация observability/UI слоя.
 - [IDEAS.md](IDEAS.md) — свалка будущих направлений (как есть, без додумывания).
 - [design_handoff_foundry_observability/](design_handoff_foundry_observability/) — hi-fi дизайн-референс UI.
+foundry-bot: task #1 — subagent:echo

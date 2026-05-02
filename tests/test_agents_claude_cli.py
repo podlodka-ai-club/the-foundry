@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from foundry.agents import AgentSettings, AgentStage, AgentTask
 from foundry.agents.claude_cli import ClaudeCliAgent
+from foundry.agents.context import agent_event_context
 from foundry.events import read_events
 from foundry.state import init_db
 
@@ -103,6 +104,34 @@ def test_apply_passes_model_and_max_turns_to_cli(tmp_path: Path) -> None:
     assert cmd[cmd.index("--model") + 1] == "opus"
     assert cmd[cmd.index("--max-turns") + 1] == "11"
     assert "--dangerously-skip-permissions" in cmd
+
+
+def test_apply_passes_mcp_config_when_set(tmp_path: Path) -> None:
+    cfg = Path("/tmp/foundry-mcp.json")
+    agent = ClaudeCliAgent(settings=_settings(mcp_config=cfg))
+
+    with patch(
+        "foundry.agents.claude_cli.iter_cli_jsonl",
+        return_value=iter([{"type": "result", "result": "ok"}]),
+    ) as run:
+        agent.apply(task=_task(), worktree=tmp_path, input="")
+
+    cmd = run.call_args.args[0]
+    assert "--mcp-config" in cmd
+    assert cmd[cmd.index("--mcp-config") + 1] == str(cfg)
+
+
+def test_apply_omits_mcp_config_when_unset(tmp_path: Path) -> None:
+    agent = ClaudeCliAgent(settings=_settings())
+
+    with patch(
+        "foundry.agents.claude_cli.iter_cli_jsonl",
+        return_value=iter([{"type": "result", "result": "ok"}]),
+    ) as run:
+        agent.apply(task=_task(), worktree=tmp_path, input="")
+
+    cmd = run.call_args.args[0]
+    assert "--mcp-config" not in cmd
 
 
 def test_apply_runs_in_worktree_cwd(tmp_path: Path) -> None:
@@ -257,6 +286,40 @@ def test_claude_cli_emits_agent_tool_events_during_apply(tmp_path: Path) -> None
     result_event = next(e for e in events if e.kind == "agent_result")
     assert result_event.payload["summary"] == "final line"
     assert result_event.payload["text"] == "final line\nmore"
+
+
+def test_record_uses_parent_event_seq_from_context(tmp_path: Path) -> None:
+    db = tmp_path / "f.sqlite"
+    init_db(db)
+    agent = ClaudeCliAgent(settings=_settings(db_path=db))
+    task = _task(task_id=202)
+    streamed = [
+        {"type": "system", "session_id": "sess-202"},
+        {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {"type": "tool_use", "name": "Read", "input": {"file_path": "/a.py"}},
+                    {"type": "text", "text": "thinking"},
+                ]
+            },
+        },
+        {"type": "result", "result": "done"},
+    ]
+
+    with patch(
+        "foundry.agents.claude_cli.iter_cli_jsonl",
+        return_value=iter(streamed),
+    ):
+        with agent_event_context(parent_event_seq=99):
+            agent.apply(task=task, worktree=tmp_path, input="")
+
+    events = read_events(db, run_id=202)
+    assert events, "expected events to be persisted"
+    for ev in events:
+        assert ev.parent_event_seq == 99, (
+            f"event {ev.kind} seq={ev.seq} has parent_event_seq={ev.parent_event_seq}"
+        )
 
 
 def test_claude_cli_skips_event_emission_without_db_path(tmp_path: Path) -> None:

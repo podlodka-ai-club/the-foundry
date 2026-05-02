@@ -5,6 +5,7 @@ from pathlib import Path
 from ..events import record_event
 from .base import AgentResult, AgentStage, AgentTask, first_line
 from .config import AgentSettings
+from .context import get_parent_event_seq
 
 
 class StubAgent:
@@ -72,7 +73,9 @@ class StubAgent:
         """Emit a synthetic event for UI observability.
 
         Skipped gracefully when no db_path is configured (e.g. unit tests that
-        instantiate StubAgent in isolation).
+        instantiate StubAgent in isolation). When invoked from a sub-agent
+        context, events nest under the framing `agent_call_started` via
+        `parent_event_seq`.
         """
         if self._settings.db_path is None:
             return
@@ -82,6 +85,7 @@ class StubAgent:
             stage=self.stage.value,
             kind=kind,
             payload=payload,
+            parent_event_seq=get_parent_event_seq(),
         )
 
     def get_session_id(self, task: AgentTask) -> str | None:

@@ -13,6 +13,7 @@ from .base import (
     first_line,
 )
 from .config import AgentSettings
+from .context import get_parent_event_seq
 from .streaming import _normalize_tool_event, iter_cli_jsonl
 
 
@@ -63,6 +64,8 @@ class ClaudeCliAgent:
         ]
         if self._settings.model:
             cmd += ["--model", self._settings.model]
+        if self._settings.mcp_config is not None:
+            cmd += ["--mcp-config", str(self._settings.mcp_config)]
         if resume_id:
             cmd += ["--resume", resume_id]
 
@@ -136,7 +139,12 @@ class ClaudeCliAgent:
                     self._record(task, kind="agent_thinking", payload={"text": str(text)})
 
     def _record(self, task: AgentTask, *, kind: str, payload: dict[str, Any]) -> None:
-        """Persist an event iff we have a db to write to and a task id."""
+        """Persist an event iff we have a db to write to and a task id.
+
+        When invoked from a sub-agent context (see `agent_event_context`),
+        events nest under the framing `agent_call_started` event via
+        `parent_event_seq`.
+        """
         if self._settings.db_path is None or task.id is None:
             return
         record_event(
@@ -145,6 +153,7 @@ class ClaudeCliAgent:
             stage=self.stage.value,
             kind=kind,
             payload=payload,
+            parent_event_seq=get_parent_event_seq(),
         )
 
     @staticmethod

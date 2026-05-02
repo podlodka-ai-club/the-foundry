@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "foundry": {
+      "command": "uv",
+      "args": ["run", "python", "-m", "foundry.mcp.server"],
+      "env": {
+        "FOUNDRY_RUN_ID": "${FOUNDRY_RUN_ID}",
+        "FOUNDRY_DB_PATH": "${FOUNDRY_DB_PATH}",
+        "FOUNDRY_AUTOMATION_ID": "${FOUNDRY_AUTOMATION_ID}",
+        "FOUNDRY_PARENT_EVENT_SEQ": "${FOUNDRY_PARENT_EVENT_SEQ}"
+      }
+    }
+  }
+}

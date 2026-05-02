@@ -10,6 +10,7 @@ dependencies = [
     "structlog>=24.1",
     "fastapi>=0.100",
     "uvicorn[standard]>=0.24",
+    "fastmcp>=3.2.4",
 ]
 
 [project.scripts]
