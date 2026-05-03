@@ -7,7 +7,7 @@
 
 ```mermaid
 flowchart LR
-    subgraph external["External sources"]
+    subgraph EXT["External sources"]
         gh_issue["GitHub issues"]
         gh_pr["GitHub PRs"]
         tg["Telegram bot"]
@@ -15,7 +15,7 @@ flowchart LR
         discord["Discord"]
     end
 
-    subgraph listeners["Listeners (long-running asyncio)"]
+    subgraph LIS["Listeners (long-running asyncio)"]
         gh_iss_l["GithubIssuesListener"]
         gh_pr_l["GithubPrReviewListener"]
         tg_l["TelegramListener"]
@@ -23,35 +23,35 @@ flowchart LR
         discord_l["DiscordListener"]
     end
 
-    subgraph dispatch["Dispatcher (events.py)"]
-        emit["EmitFn(trigger_id, dedupe_key, payload)"]
-        dispatch_event["dispatch_event<br/>= INSERT events row<br/>+ INSERT runs(PENDING)<br/>per matched automation"]
+    subgraph DIS["Dispatcher — events.py"]
+        emit["EmitFn — trigger_id, dedupe_key, payload"]
+        dispatch_event["dispatch_event<br/>INSERT events row<br/>+ INSERT runs PENDING<br/>per matched automation"]
     end
 
-    subgraph state[("SQLite (state.py)")]
-        events_tbl["events<br/>UNIQUE(trigger_id, external_id)"]
-        runs_tbl["runs<br/>PENDING/RUNNING/WAITING/<br/>DONE/FAILED/UNCLEAR"]
+    subgraph DB["SQLite — state.py"]
+        events_tbl["events<br/>UNIQUE trigger_id, external_id"]
+        runs_tbl["runs<br/>PENDING / RUNNING / WAITING<br/>DONE / FAILED / UNCLEAR"]
         run_events_tbl["run_events<br/>append-only breadcrumbs"]
     end
 
-    subgraph orch["Orchestrator (orchestrator.py)"]
+    subgraph ORCH["Orchestrator — orchestrator.py"]
         loop["run_forever loop"]
-        claim["claim_pending_run<br/>(atomic UPDATE … RETURNING)"]
+        claim["claim_pending_run<br/>atomic UPDATE RETURNING"]
     end
 
-    subgraph runner_box["Runner (runner.py)"]
+    subgraph RUN["Runner — runner.py"]
         prepare["_prepare_workspace<br/>match automation.workspace"]
         spawn["spawn agent"]
         parse["parse STATUS marker"]
         finish["finish_run"]
     end
 
-    subgraph agent_box["Agent (agents/*)"]
-        cli["claude_cli / codex_cli /<br/>opencode_cli / stub"]
-        mcp_box["per-run MCP server<br/>(mcp/server.py)"]
+    subgraph AGT["Agent — agents/"]
+        cli["claude_cli / codex_cli<br/>opencode_cli / stub"]
+        mcp_box["per-run MCP server<br/>mcp/server.py"]
     end
 
-    subgraph skills_box["Skills (skills/*)"]
+    subgraph SK["Skills — skills/"]
         commit_pr["commit_and_push_pr"]
         tg_reply["telegram_reply"]
         wait["wait_for_human"]
@@ -85,7 +85,7 @@ flowchart LR
     mcp_box --> wait
     mcp_box --> sub
     sub -.recurse.-> cli
-    cli -->|"final reply with<br/>STATUS: marker"| parse
+    cli -->|final reply with STATUS marker| parse
     parse --> finish
     spawn -.streams.-> run_events_tbl
     finish --> runs_tbl
@@ -107,64 +107,65 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    cli["foundry.cli<br/>(serve / runs)"]
-    api["src/api/<br/>(FastAPI + SSE)"]
-    web["web/<br/>(Vite + React)"]
+    cli["foundry.cli<br/>serve / runs"]
+    api["src/api/<br/>FastAPI + SSE"]
+    web["web/<br/>Vite + React"]
 
     orch["foundry.orchestrator"]
     runner["foundry.runner"]
-    events["foundry.events<br/>(dispatch_event)"]
-    state["foundry.state<br/>(raw SQL)"]
+    events["foundry.events<br/>dispatch_event"]
+    state_mod["foundry.state<br/>raw SQL"]
 
-    listeners["foundry.listeners<br/>(github_issues, github_pr_review,<br/>telegram, cron, discord)"]
-    triggers["foundry.triggers"]
-    automations["foundry.automations.registry"]
+    listeners_mod["foundry.listeners<br/>github_issues, github_pr_review<br/>telegram, cron, discord"]
+    triggers_mod["foundry.triggers"]
+    automations_mod["foundry.automations.registry"]
 
-    agents["foundry.agents<br/>(claude_cli, codex_cli,<br/>opencode_cli, stub)"]
-    skills["foundry.skills<br/>(pr / telegram_reply /<br/>wait_for_human)"]
-    mcp["foundry.mcp<br/>(server, runner, config)"]
+    agents_mod["foundry.agents<br/>claude_cli, codex_cli<br/>opencode_cli, stub"]
+    skills_mod["foundry.skills<br/>pr / telegram_reply<br/>wait_for_human"]
+    mcp_mod["foundry.mcp<br/>server, runner, config"]
 
     workspace["foundry.worktree<br/>foundry.pr_worktree"]
-    status["foundry.status_marker"]
-    config["foundry.config"]
-    models["foundry.models"]
+    status_mod["foundry.status_marker"]
+    config_mod["foundry.config"]
+    models_mod["foundry.models"]
+    shell_mod["foundry.shell"]
 
     cli --> orch
-    cli --> listeners
+    cli --> listeners_mod
     cli --> events
-    cli --> config
+    cli --> config_mod
 
-    api --> state
+    api --> state_mod
     api --> events
-    web -.HTTP/SSE.-> api
+    web -.HTTP / SSE.-> api
 
     orch --> runner
-    orch --> state
+    orch --> state_mod
 
-    runner --> agents
-    runner --> mcp
+    runner --> agents_mod
+    runner --> mcp_mod
     runner --> workspace
-    runner --> status
-    runner --> state
-    runner --> automations
+    runner --> status_mod
+    runner --> state_mod
+    runner --> automations_mod
 
-    listeners --> triggers
-    listeners --> events
+    listeners_mod --> triggers_mod
+    listeners_mod --> events
 
-    events --> automations
-    events --> state
+    events --> automations_mod
+    events --> state_mod
 
-    automations --> triggers
-    automations --> models
+    automations_mod --> triggers_mod
+    automations_mod --> models_mod
 
-    agents --> models
-    agents --> events
+    agents_mod --> models_mod
+    agents_mod --> events
 
-    skills --> state
-    skills --> shell["foundry.shell"]
+    skills_mod --> state_mod
+    skills_mod --> shell_mod
 
-    mcp --> skills
-    mcp --> events
+    mcp_mod --> skills_mod
+    mcp_mod --> events
 ```
 
 Стрелка `A → B` читается как «A импортирует B». Циклов нет; ядро —
@@ -174,14 +175,14 @@ flowchart TD
 
 ```mermaid
 stateDiagram-v2
-    [*] --> PENDING : dispatch_event
-    PENDING --> RUNNING : claim_pending_run
-    RUNNING --> WAITING : skill wait_for_human
-    WAITING --> RUNNING : human reply / event
-    RUNNING --> DONE : STATUS\: done|approved|change_requested|rejected
-    RUNNING --> FAILED : STATUS\: failed[\:kind] / runner exception
-    RUNNING --> UNCLEAR : no/unknown STATUS marker
-    FAILED --> PENDING : POST /api/runs/{id}/retry
+    [*] --> PENDING: dispatch_event
+    PENDING --> RUNNING: claim_pending_run
+    RUNNING --> WAITING: skill wait_for_human
+    WAITING --> RUNNING: human reply or new event
+    RUNNING --> DONE: STATUS done / approved / change_requested / rejected
+    RUNNING --> FAILED: STATUS failed or runner exception
+    RUNNING --> UNCLEAR: no or unknown STATUS marker
+    FAILED --> PENDING: POST /api/runs/id/retry
     DONE --> [*]
     UNCLEAR --> [*]
 ```
