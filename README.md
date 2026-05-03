@@ -120,7 +120,7 @@ AGENT_MODEL=gpt-5
 AGENT_TIMEOUT_SEC=900
 AGENT_MAX_TURNS=20
 AGENT_IMPLEMENT_MAX_TURNS=40
-VERIFY_COMMANDS=[["ruff","check","."],["pytest","-x","--no-header","-q"]]
+VERIFY_COMMANDS=[["uv","run","ruff","check","."],["uv","run","pytest","-x","--no-header","-q"],["npm","--prefix","web","ci"],["npm","--prefix","web","run","build"],["npm","--prefix","web","run","lint"]]
 ```
 
 Дальше заведи небольшое issue с лейблом `foundry-task` и запусти один проход:

@@ -52,7 +52,10 @@ def test_context_stage_builds_repo_map_and_relevant_files(tmp_path: Path) -> Non
 
     assert {"language": "Python", "files": 2} in out["languages"]
     assert out["manifest_files"] == ["pyproject.toml"]
-    assert out["test_commands"] == ["ruff check .", "pytest -x --no-header -q"]
+    assert out["test_commands"] == [
+        "uv run ruff check .",
+        "uv run pytest -x --no-header -q",
+    ]
     assert "context" in out["keywords"]
     assert out["relevant_files"][0]["path"] == "src/context.py"
     assert out["repo_memory"][0]["key"] == "touched_files"

@@ -9,6 +9,7 @@ __pycache__/
 .env
 data/
 worktrees/
+worktrees.bak/
 
 # --- Frontend ---
 web/node_modules

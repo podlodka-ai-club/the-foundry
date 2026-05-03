@@ -38,7 +38,7 @@ COPY docker/entrypoint.sh /usr/local/bin/foundry-entrypoint
 
 RUN chmod +x /usr/local/bin/foundry-entrypoint
 
-RUN uv sync --frozen --no-dev \
+RUN uv sync --frozen \
     && mkdir -p /app/data /app/worktrees
 
 EXPOSE 8000

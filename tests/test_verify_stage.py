@@ -90,13 +90,16 @@ def test_detect_pyproject_with_tests_returns_ruff_and_pytest(tmp_path: Path) -> 
     (tmp_path / "pyproject.toml").write_text("[project]\nname='x'\n")
     (tmp_path / "tests").mkdir()
     cmds = verify_stage._detect_verify_commands(tmp_path)
-    assert cmds == [["ruff", "check", "."], ["pytest", "-x", "--no-header", "-q"]]
+    assert cmds == [
+        ["uv", "run", "ruff", "check", "."],
+        ["uv", "run", "pytest", "-x", "--no-header", "-q"],
+    ]
 
 
 def test_detect_pyproject_without_tests_omits_pytest(tmp_path: Path) -> None:
     (tmp_path / "pyproject.toml").write_text("[project]\nname='x'\n")
     cmds = verify_stage._detect_verify_commands(tmp_path)
-    assert cmds == [["ruff", "check", "."]]
+    assert cmds == [["uv", "run", "ruff", "check", "."]]
 
 
 def test_detect_no_markers_returns_empty(tmp_path: Path) -> None:
@@ -104,8 +107,29 @@ def test_detect_no_markers_returns_empty(tmp_path: Path) -> None:
 
 
 def test_detect_package_json(tmp_path: Path) -> None:
-    (tmp_path / "package.json").write_text("{}")
-    assert verify_stage._detect_verify_commands(tmp_path) == [["npm", "test", "--silent"]]
+    (tmp_path / "package.json").write_text(
+        '{"scripts":{"build":"vite build","lint":"eslint .","test":"vitest"}}'
+    )
+    (tmp_path / "package-lock.json").write_text("{}")
+    assert verify_stage._detect_verify_commands(tmp_path) == [
+        ["npm", "ci"],
+        ["npm", "run", "build"],
+        ["npm", "run", "lint"],
+        ["npm", "run", "test", "--silent"],
+    ]
+
+
+def test_detect_nested_package_json_installs_and_runs_scripts(tmp_path: Path) -> None:
+    web = tmp_path / "web"
+    web.mkdir()
+    (web / "package.json").write_text('{"scripts":{"build":"tsc","lint":"eslint ."}}')
+    (web / "package-lock.json").write_text("{}")
+
+    assert verify_stage._detect_verify_commands(tmp_path) == [
+        ["npm", "--prefix", "web", "ci"],
+        ["npm", "--prefix", "web", "run", "build"],
+        ["npm", "--prefix", "web", "run", "lint"],
+    ]
 
 
 # ----- _parse_verdict -----------------------------------------------------

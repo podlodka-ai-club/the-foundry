@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from collections import Counter
 from pathlib import Path
@@ -295,11 +296,11 @@ def _test_commands(
     commands: list[str] = []
     manifest_set = set(manifests)
     if "pyproject.toml" in manifest_set:
-        commands.append("ruff check .")
+        commands.append("uv run ruff check .")
         if (root / "tests").is_dir():
-            commands.append("pytest -x --no-header -q")
+            commands.append("uv run pytest -x --no-header -q")
     if "package.json" in manifest_set:
-        commands.append("npm test --silent")
+        commands.extend(_npm_commands(root, Path(".")))
     if "Cargo.toml" in manifest_set:
         commands.append("cargo test")
     if "go.mod" in manifest_set:
@@ -308,9 +309,35 @@ def _test_commands(
     for manifest in manifests:
         if manifest.endswith("/package.json"):
             package_dir = Path(manifest).parent.as_posix()
-            commands.append(f"npm --prefix {package_dir} test --silent")
+            commands.extend(_npm_commands(root, Path(package_dir)))
 
     return _dedupe(commands)
+
+
+def _npm_commands(root: Path, package_dir: Path) -> list[str]:
+    package_root = root / package_dir
+    package_json = _read_package_json(package_root / "package.json")
+    scripts = package_json.get("scripts", {})
+    if not isinstance(scripts, dict):
+        scripts = {}
+
+    prefix = [] if package_dir.as_posix() == "." else ["--prefix", package_dir.as_posix()]
+    commands: list[list[str]] = []
+    if (package_root / "package-lock.json").exists():
+        commands.append(["npm", *prefix, "ci"])
+    for script in ("build", "lint", "test"):
+        if script in scripts:
+            suffix = ["--silent"] if script == "test" else []
+            commands.append(["npm", *prefix, "run", script, *suffix])
+    return [" ".join(command) for command in commands]
+
+
+def _read_package_json(path: Path) -> dict[str, object]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 def _dedupe(items: list[str]) -> list[str]:

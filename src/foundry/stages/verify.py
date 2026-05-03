@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 from typing import Literal
@@ -140,14 +141,55 @@ def _detect_verify_commands(worktree_path: Path) -> list[list[str]]:
     """
     cmds: list[list[str]] = []
     if (worktree_path / "pyproject.toml").exists():
-        cmds.append(["ruff", "check", "."])
+        cmds.append(["uv", "run", "ruff", "check", "."])
         if (worktree_path / "tests").is_dir():
-            cmds.append(["pytest", "-x", "--no-header", "-q"])
+            cmds.append(["uv", "run", "pytest", "-x", "--no-header", "-q"])
     if (worktree_path / "package.json").exists():
-        cmds.append(["npm", "test", "--silent"])
+        cmds.extend(_npm_commands(worktree_path, Path(".")))
+    for package_json in sorted(worktree_path.glob("*/package.json")):
+        package_dir = package_json.parent.relative_to(worktree_path)
+        cmds.extend(_npm_commands(worktree_path, package_dir))
     if (worktree_path / "Cargo.toml").exists():
         cmds.append(["cargo", "test"])
+    return _dedupe_commands(cmds)
+
+
+def _npm_commands(root: Path, package_dir: Path) -> list[list[str]]:
+    package_root = root / package_dir
+    package_json = _read_package_json(package_root / "package.json")
+    scripts = package_json.get("scripts", {})
+    if not isinstance(scripts, dict):
+        scripts = {}
+
+    prefix = [] if package_dir.as_posix() == "." else ["--prefix", package_dir.as_posix()]
+    cmds: list[list[str]] = []
+    if (package_root / "package-lock.json").exists():
+        cmds.append(["npm", *prefix, "ci"])
+    for script in ("build", "lint", "test"):
+        if script in scripts:
+            suffix = ["--silent"] if script == "test" else []
+            cmds.append(["npm", *prefix, "run", script, *suffix])
     return cmds
+
+
+def _read_package_json(path: Path) -> dict[str, object]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _dedupe_commands(cmds: list[list[str]]) -> list[list[str]]:
+    out: list[list[str]] = []
+    seen: set[tuple[str, ...]] = set()
+    for cmd in cmds:
+        key = tuple(cmd)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(cmd)
+    return out
 
 
 def _capture_diff(worktree_path: Path, max_bytes: int) -> str:
