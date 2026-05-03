@@ -182,6 +182,76 @@ def test_dev_task_pass_after_retry_opens_pr(tmp_path: Path) -> None:
     assert verify_finished[-1].payload["output"]["passed"] is True
 
 
+def test_dev_task_resumes_verify_after_process_dies_post_implement(
+    tmp_path: Path,
+) -> None:
+    """A saved IMPLEMENT result lets the next process continue at VERIFY/PR."""
+    settings = _settings(tmp_path, max_implement_attempts=2)
+    state.init_db(settings.db_path)
+    seeded = _seed_task(settings.db_path)
+
+    real_save_stage_result = state.save_stage_result
+    implement_calls: list[dict] = []
+
+    def _implement_run(task, plan, worktree_path, settings):
+        implement_calls.append(plan)
+        return {"result": "implemented", "response": "implemented"}
+
+    def _crash_after_implement(db_path, task_id, stage, output, *, attempt=0):
+        real_save_stage_result(db_path, task_id, stage, output, attempt=attempt)
+        if stage == Stage.IMPLEMENT:
+            raise SystemExit("simulated process death")
+
+    first_ctxs = [
+        *[patch(target, **kwargs) for target, kwargs in _dev_task_patches(tmp_path).items()],
+        patch("foundry.workflows.agent_implement_stage.run", side_effect=_implement_run),
+        patch(
+            "foundry.workflows.state.save_stage_result",
+            side_effect=_crash_after_implement,
+        ),
+    ]
+    _start(first_ctxs)
+    try:
+        try:
+            workflows.dev_task(settings, seeded)
+        except SystemExit:
+            pass
+    finally:
+        _stop(first_ctxs)
+
+    interrupted = state.get_task(settings.db_path, seeded.id)
+    assert interrupted.current_stage == Stage.IMPLEMENT
+    assert state.get_stage_result(
+        settings.db_path, seeded.id, Stage.IMPLEMENT, attempt=1
+    ) == {"result": "implemented", "response": "implemented"}
+
+    verify_calls: list[dict] = []
+
+    def _verify_run(task, worktree_path, settings, impl_result=None):
+        verify_calls.append(impl_result)
+        return {"passed": True, "report": "green"}
+
+    second_ctxs = [
+        patch("foundry.pipeline.fetch_stage.fetch", return_value=[interrupted]),
+        *[patch(target, **kwargs) for target, kwargs in _dev_task_patches(tmp_path).items()],
+        patch("foundry.workflows.agent_implement_stage.run", side_effect=AssertionError),
+        patch("foundry.workflows.verify_stage.run", side_effect=_verify_run),
+    ]
+    _start(second_ctxs)
+    try:
+        processed = pipeline.run_once(settings)
+    finally:
+        _stop(second_ctxs)
+
+    final = state.get_task(settings.db_path, processed[0].id)
+    assert final.status == TaskStatus.DONE
+    assert final.current_stage == Stage.DONE
+    assert final.pr_url == "https://example/pr/1"
+    assert len(implement_calls) == 1
+    assert implement_calls[0]["plan"] == "do X"
+    assert verify_calls == [{"result": "implemented", "response": "implemented"}]
+
+
 def test_dev_task_exhausted_retries_marks_failed(tmp_path: Path) -> None:
     """Verifier keeps returning retryable failure → task ends FAILED, no PR."""
     settings = _settings(tmp_path, max_implement_attempts=2)

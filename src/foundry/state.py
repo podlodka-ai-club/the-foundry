@@ -39,6 +39,26 @@ CREATE TABLE IF NOT EXISTS task_events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_task_events_task_seq ON task_events(task_id, seq);
+
+CREATE TABLE IF NOT EXISTS stage_results (
+    task_id INTEGER NOT NULL,
+    stage TEXT NOT NULL,
+    attempt INTEGER NOT NULL DEFAULT 0,
+    output_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (task_id, stage, attempt)
+);
+
+CREATE TABLE IF NOT EXISTS agent_sessions (
+    task_id INTEGER NOT NULL,
+    stage TEXT NOT NULL,
+    backend TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (task_id, stage, backend)
+);
 """
 
 
@@ -176,3 +196,112 @@ def append_log(db_path: Path, task_id: int, stage: Stage, entry: dict) -> None:
             "UPDATE tasks SET logs_json = ?, updated_at = ? WHERE id = ?",
             (json.dumps(logs), _now_iso(), task_id),
         )
+
+
+def save_stage_result(
+    db_path: Path,
+    task_id: int,
+    stage: Stage,
+    output: dict,
+    *,
+    attempt: int = 0,
+) -> None:
+    now = _now_iso()
+    with _connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO stage_results (
+                task_id, stage, attempt, output_json, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(task_id, stage, attempt) DO UPDATE SET
+                output_json = excluded.output_json,
+                updated_at = excluded.updated_at
+            """,
+            (
+                task_id,
+                stage.value,
+                attempt,
+                json.dumps(output),
+                now,
+                now,
+            ),
+        )
+
+
+def get_stage_result(
+    db_path: Path,
+    task_id: int,
+    stage: Stage,
+    *,
+    attempt: int = 0,
+) -> dict | None:
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT output_json FROM stage_results
+            WHERE task_id = ? AND stage = ? AND attempt = ?
+            """,
+            (task_id, stage.value, attempt),
+        ).fetchone()
+        return json.loads(row["output_json"]) if row else None
+
+
+def get_latest_stage_result(
+    db_path: Path,
+    task_id: int,
+    stage: Stage,
+) -> tuple[int, dict] | None:
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT attempt, output_json FROM stage_results
+            WHERE task_id = ? AND stage = ?
+            ORDER BY attempt DESC
+            LIMIT 1
+            """,
+            (task_id, stage.value),
+        ).fetchone()
+        if row is None:
+            return None
+        return int(row["attempt"]), json.loads(row["output_json"])
+
+
+def save_agent_session(
+    db_path: Path,
+    task_id: int,
+    stage: str,
+    backend: str,
+    session_id: str,
+) -> None:
+    now = _now_iso()
+    with _connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO agent_sessions (
+                task_id, stage, backend, session_id, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(task_id, stage, backend) DO UPDATE SET
+                session_id = excluded.session_id,
+                updated_at = excluded.updated_at
+            """,
+            (task_id, stage, backend, session_id, now, now),
+        )
+
+
+def get_agent_session(
+    db_path: Path,
+    task_id: int,
+    stage: str,
+    backend: str,
+) -> str | None:
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT session_id FROM agent_sessions
+            WHERE task_id = ? AND stage = ? AND backend = ?
+            """,
+            (task_id, stage, backend),
+        ).fetchone()
+        return str(row["session_id"]) if row else None

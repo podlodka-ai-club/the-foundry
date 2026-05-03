@@ -83,3 +83,36 @@ def test_append_log_accumulates(tmp_path: Path) -> None:
     assert len(logs) == 2
     assert logs[0]["stage"] == "plan"
     assert logs[1]["stage"] == "implement"
+
+
+def test_stage_results_round_trip_by_attempt(tmp_path: Path) -> None:
+    db = tmp_path / "f.sqlite"
+    state.init_db(db)
+    task = state.upsert_task(db, _make_task())
+
+    state.save_stage_result(db, task.id, Stage.PLAN, {"plan": "do it"})
+    state.save_stage_result(
+        db, task.id, Stage.IMPLEMENT, {"result": "changed"}, attempt=2
+    )
+
+    assert state.get_stage_result(db, task.id, Stage.PLAN) == {"plan": "do it"}
+    assert state.get_stage_result(
+        db, task.id, Stage.IMPLEMENT, attempt=2
+    ) == {"result": "changed"}
+    assert state.get_latest_stage_result(db, task.id, Stage.IMPLEMENT) == (
+        2,
+        {"result": "changed"},
+    )
+
+
+def test_agent_sessions_round_trip(tmp_path: Path) -> None:
+    db = tmp_path / "f.sqlite"
+    state.init_db(db)
+    task = state.upsert_task(db, _make_task())
+
+    state.save_agent_session(db, task.id, "implement", "claude_cli", "sess-1")
+    state.save_agent_session(db, task.id, "implement", "claude_cli", "sess-2")
+
+    assert (
+        state.get_agent_session(db, task.id, "implement", "claude_cli") == "sess-2"
+    )

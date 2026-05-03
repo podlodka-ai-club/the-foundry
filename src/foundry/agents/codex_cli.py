@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .. import observability
+from .. import observability, state
 from ..events import record_event
 from .base import (
     AgentResult,
@@ -66,6 +66,14 @@ class CodexCliAgent:
             new_session_id = self._extract_session_id(events)
             if new_session_id:
                 self._sessions[task.id] = new_session_id
+                if self._settings.db_path is not None:
+                    state.save_agent_session(
+                        self._settings.db_path,
+                        task.id,
+                        self.stage.value,
+                        self.name,
+                        new_session_id,
+                    )
 
             response = self._extract_final_text(events)
             usage = self._extract_usage(events)
@@ -86,7 +94,16 @@ class CodexCliAgent:
         )
 
     def get_session_id(self, task: AgentTask) -> str | None:
-        return self._sessions.get(task.id)
+        if task.id in self._sessions:
+            return self._sessions[task.id]
+        if self._settings.db_path is None:
+            return None
+        session_id = state.get_agent_session(
+            self._settings.db_path, task.id, self.stage.value, self.name
+        )
+        if session_id:
+            self._sessions[task.id] = session_id
+        return session_id
 
     def _base_flags(self, worktree: Path) -> list[str]:
         flags = [

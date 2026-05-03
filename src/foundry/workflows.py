@@ -412,6 +412,9 @@ def dev_task(settings: Settings, task: Task) -> Task:
         log.info("task.skip_already_has_pr", task_id=task.id, pr_url=task.pr_url)
         return task
 
+    if task.id is None:
+        task = state.upsert_task(settings.db_path, task)
+
     task.attempts += 1
     task.status = TaskStatus.RUNNING
     task = state.upsert_task(settings.db_path, task)
@@ -419,44 +422,56 @@ def dev_task(settings: Settings, task: Task) -> Task:
     _emit_synthetic_fetch_events(settings, task)
 
     base = worktree.ensure_base_repo(settings.worktree_root, settings.source_repo)
-    wt_path, branch_name = worktree.create_worktree(settings.worktree_root, task.id)
-    task.worktree_path = str(wt_path)
-    task.branch_name = branch_name
-    task = state.upsert_task(settings.db_path, task)
+    if task.worktree_path and task.branch_name:
+        wt_path = Path(task.worktree_path)
+        branch_name = task.branch_name
+    else:
+        wt_path, branch_name = worktree.create_worktree(settings.worktree_root, task.id)
+        task.worktree_path = str(wt_path)
+        task.branch_name = branch_name
+        task = state.upsert_task(settings.db_path, task)
 
     # CONTEXT
-    task = _mark(settings, task, stage=Stage.CONTEXT)
-    with stage_span(settings.db_path, task.id, Stage.CONTEXT.value) as finish:
-        ctx = context_stage.run(task, settings)
-        finish(output={"files": len(ctx.get("files", []))})
-    state.append_log(settings.db_path, task.id, Stage.CONTEXT, {"ok": True})
+    ctx = state.get_stage_result(settings.db_path, task.id, Stage.CONTEXT)
+    if ctx is None:
+        task = _mark(settings, task, stage=Stage.CONTEXT)
+        with stage_span(settings.db_path, task.id, Stage.CONTEXT.value) as finish:
+            ctx = context_stage.run(task, settings)
+            finish(output={"files": len(ctx.get("files", []))})
+        state.save_stage_result(settings.db_path, task.id, Stage.CONTEXT, ctx)
+        state.append_log(settings.db_path, task.id, Stage.CONTEXT, {"ok": True})
 
     # PLAN
-    task = _mark(settings, task, stage=Stage.PLAN)
-    plan_agent_settings = AgentSettings.from_env(AgentStage.PLAN, db_path=settings.db_path)
-    plan_agent_task = AgentTask(
-        id=task.id or task.issue_number,
-        title=task.issue_title,
-        description=task.issue_body,
-    )
-    plan_prompt = build_fresh_prompt(AgentStage.PLAN, plan_agent_task, "")
-    with stage_span(
-        settings.db_path,
-        task.id,
-        Stage.PLAN.value,
-        input={"title": task.issue_title, "prompt": plan_prompt},
-        agent={"name": plan_agent_settings.backend, "model": plan_agent_settings.model},
-    ) as finish:
-        plan = agent_plan_stage.run(task, ctx, wt_path, settings)
-        finish(
-            output={"summary": plan.get("summary", ""), "text": plan.get("plan", "")},
-            cost_usd=plan.get("cost_usd"),
-            tokens_in=plan.get("tokens_in"),
-            tokens_out=plan.get("tokens_out"),
+    plan = state.get_stage_result(settings.db_path, task.id, Stage.PLAN)
+    if plan is None:
+        task = _mark(settings, task, stage=Stage.PLAN)
+        plan_agent_settings = AgentSettings.from_env(
+            AgentStage.PLAN, db_path=settings.db_path
         )
-    state.append_log(
-        settings.db_path, task.id, Stage.PLAN, {"summary": plan.get("summary", "")}
-    )
+        plan_agent_task = AgentTask(
+            id=task.id or task.issue_number,
+            title=task.issue_title,
+            description=task.issue_body,
+        )
+        plan_prompt = build_fresh_prompt(AgentStage.PLAN, plan_agent_task, "")
+        with stage_span(
+            settings.db_path,
+            task.id,
+            Stage.PLAN.value,
+            input={"title": task.issue_title, "prompt": plan_prompt},
+            agent={"name": plan_agent_settings.backend, "model": plan_agent_settings.model},
+        ) as finish:
+            plan = agent_plan_stage.run(task, ctx, wt_path, settings)
+            finish(
+                output={"summary": plan.get("summary", ""), "text": plan.get("plan", "")},
+                cost_usd=plan.get("cost_usd"),
+                tokens_in=plan.get("tokens_in"),
+                tokens_out=plan.get("tokens_out"),
+            )
+        state.save_stage_result(settings.db_path, task.id, Stage.PLAN, plan)
+        state.append_log(
+            settings.db_path, task.id, Stage.PLAN, {"summary": plan.get("summary", "")}
+        )
     plan_text = plan.get("plan", "")
     if needs_human_input(plan_text):
         return _block_for_human(
@@ -470,7 +485,9 @@ def dev_task(settings: Settings, task: Task) -> Task:
 
     # IMPLEMENT → VERIFY quality-gate loop
     max_attempts = max(1, settings.max_implement_attempts)
-    impl_result: dict[str, Any] = {}
+    latest_impl = state.get_latest_stage_result(settings.db_path, task.id, Stage.IMPLEMENT)
+    latest_verify = state.get_latest_stage_result(settings.db_path, task.id, Stage.VERIFY)
+    impl_result: dict[str, Any] = latest_impl[1] if latest_impl else {}
     decision = VerificationDecision(
         passed=False,
         retryable=False,
@@ -479,6 +496,8 @@ def dev_task(settings: Settings, task: Task) -> Task:
         report="",
         raw={},
     )
+    if latest_verify:
+        decision = normalize_verification(latest_verify[1])
     for attempt in range(1, max_attempts + 1):
         attempt_plan = dict(plan)
         attempt_plan["plan"] = _build_attempt_input(
@@ -488,46 +507,60 @@ def dev_task(settings: Settings, task: Task) -> Task:
             previous_report=decision.report if attempt > 1 else "",
         )
 
-        task = _mark(settings, task, stage=Stage.IMPLEMENT)
-        impl_agent_settings = AgentSettings.from_env(
-            AgentStage.IMPLEMENT, db_path=settings.db_path
+        saved_impl = state.get_stage_result(
+            settings.db_path, task.id, Stage.IMPLEMENT, attempt=attempt
         )
-        impl_agent_task = AgentTask(
-            id=task.id or task.issue_number,
-            title=task.issue_title,
-            description=task.issue_body,
-        )
-        impl_prompt = build_fresh_prompt(
-            AgentStage.IMPLEMENT, impl_agent_task, attempt_plan["plan"]
-        )
-        with stage_span(
-            settings.db_path,
-            task.id,
-            Stage.IMPLEMENT.value,
-            input={
-                "title": task.issue_title,
-                "prompt": impl_prompt,
-                "attempt": attempt,
-            },
-            agent={"name": impl_agent_settings.backend, "model": impl_agent_settings.model},
-        ) as finish:
-            impl_result = agent_implement_stage.run(task, attempt_plan, wt_path, settings)
-            finish(
-                output={
-                    "summary": impl_result.get("result", ""),
-                    "text": impl_result.get("response", ""),
+        if saved_impl is None:
+            task = _mark(settings, task, stage=Stage.IMPLEMENT)
+            impl_agent_settings = AgentSettings.from_env(
+                AgentStage.IMPLEMENT, db_path=settings.db_path
+            )
+            impl_agent_task = AgentTask(
+                id=task.id or task.issue_number,
+                title=task.issue_title,
+                description=task.issue_body,
+            )
+            impl_prompt = build_fresh_prompt(
+                AgentStage.IMPLEMENT, impl_agent_task, attempt_plan["plan"]
+            )
+            with stage_span(
+                settings.db_path,
+                task.id,
+                Stage.IMPLEMENT.value,
+                input={
+                    "title": task.issue_title,
+                    "prompt": impl_prompt,
                     "attempt": attempt,
                 },
-                cost_usd=impl_result.get("cost_usd"),
-                tokens_in=impl_result.get("tokens_in"),
-                tokens_out=impl_result.get("tokens_out"),
+                agent={
+                    "name": impl_agent_settings.backend,
+                    "model": impl_agent_settings.model,
+                },
+            ) as finish:
+                impl_result = agent_implement_stage.run(
+                    task, attempt_plan, wt_path, settings
+                )
+                finish(
+                    output={
+                        "summary": impl_result.get("result", ""),
+                        "text": impl_result.get("response", ""),
+                        "attempt": attempt,
+                    },
+                    cost_usd=impl_result.get("cost_usd"),
+                    tokens_in=impl_result.get("tokens_in"),
+                    tokens_out=impl_result.get("tokens_out"),
+                )
+            state.save_stage_result(
+                settings.db_path, task.id, Stage.IMPLEMENT, impl_result, attempt=attempt
             )
-        state.append_log(
-            settings.db_path,
-            task.id,
-            Stage.IMPLEMENT,
-            {**impl_result, "attempt": attempt},
-        )
+            state.append_log(
+                settings.db_path,
+                task.id,
+                Stage.IMPLEMENT,
+                {**impl_result, "attempt": attempt},
+            )
+        else:
+            impl_result = saved_impl
         if needs_human_input(impl_result.get("response") or impl_result.get("result")):
             return _block_for_human(
                 settings,
@@ -541,39 +574,48 @@ def dev_task(settings: Settings, task: Task) -> Task:
             )
 
         # VERIFY
-        task = _mark(settings, task, stage=Stage.VERIFY)
-        with stage_span(
-            settings.db_path,
-            task.id,
-            Stage.VERIFY.value,
-            input={"attempt": attempt},
-        ) as finish:
-            verify_raw = verify_stage.run(
-                task, wt_path, settings, impl_result=impl_result
+        saved_verify = state.get_stage_result(
+            settings.db_path, task.id, Stage.VERIFY, attempt=attempt
+        )
+        if saved_verify is None:
+            task = _mark(settings, task, stage=Stage.VERIFY)
+            with stage_span(
+                settings.db_path,
+                task.id,
+                Stage.VERIFY.value,
+                input={"attempt": attempt},
+            ) as finish:
+                verify_raw = verify_stage.run(
+                    task, wt_path, settings, impl_result=impl_result
+                )
+                decision = normalize_verification(verify_raw)
+                finish(
+                    output={
+                        "passed": decision.passed,
+                        "retryable": decision.retryable,
+                        "requires_human": decision.requires_human,
+                        "failure_kind": decision.failure_kind,
+                        "report": decision.report,
+                        "attempt": attempt,
+                    }
+                )
+            state.save_stage_result(
+                settings.db_path, task.id, Stage.VERIFY, verify_raw, attempt=attempt
             )
-            decision = normalize_verification(verify_raw)
-            finish(
-                output={
+            state.append_log(
+                settings.db_path,
+                task.id,
+                Stage.VERIFY,
+                {
+                    "attempt": attempt,
                     "passed": decision.passed,
                     "retryable": decision.retryable,
                     "requires_human": decision.requires_human,
                     "failure_kind": decision.failure_kind,
-                    "report": decision.report,
-                    "attempt": attempt,
-                }
+                },
             )
-        state.append_log(
-            settings.db_path,
-            task.id,
-            Stage.VERIFY,
-            {
-                "attempt": attempt,
-                "passed": decision.passed,
-                "retryable": decision.retryable,
-                "requires_human": decision.requires_human,
-                "failure_kind": decision.failure_kind,
-            },
-        )
+        else:
+            decision = normalize_verification(saved_verify)
 
         if decision.passed:
             break
@@ -602,14 +644,19 @@ def dev_task(settings: Settings, task: Task) -> Task:
         # Otherwise: retryable failure with remaining budget — loop.
 
     # PR
-    task = _mark(settings, task, stage=Stage.PR)
-    with stage_span(settings.db_path, task.id, Stage.PR.value) as finish:
-        pr_result = pr_stage.run(
-            task, wt_path, branch_name, settings, report=decision.report
-        )
-        task.pr_url = pr_result["pr_url"]
-        finish(output={"pr_url": pr_result["pr_url"]})
-    state.append_log(settings.db_path, task.id, Stage.PR, pr_result)
+    pr_result = state.get_stage_result(settings.db_path, task.id, Stage.PR)
+    if pr_result is None:
+        task = _mark(settings, task, stage=Stage.PR)
+        with stage_span(settings.db_path, task.id, Stage.PR.value) as finish:
+            pr_result = pr_stage.run(
+                task, wt_path, branch_name, settings, report=decision.report
+            )
+            task.pr_url = pr_result["pr_url"]
+            finish(output={"pr_url": pr_result["pr_url"]})
+        state.save_stage_result(settings.db_path, task.id, Stage.PR, pr_result)
+        state.append_log(settings.db_path, task.id, Stage.PR, pr_result)
+    else:
+        task.pr_url = pr_result.get("pr_url")
 
     task = _mark(settings, task, stage=Stage.DONE, status=TaskStatus.DONE)
     worktree.cleanup_worktree(base, wt_path)

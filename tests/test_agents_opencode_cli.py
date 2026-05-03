@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
+from foundry import state
 from foundry.agents import AgentSettings, AgentStage, AgentTask
 from foundry.agents.opencode_cli import OpencodeCliAgent
 
@@ -81,6 +82,35 @@ def test_apply_caches_session_id_and_resumes_next_call(tmp_path: Path) -> None:
     resume_cmd = run.call_args_list[1].args[0]
     assert "--session" not in fresh_cmd
     assert resume_cmd[resume_cmd.index("--session") + 1] == "ses_11"
+
+
+def test_apply_resumes_session_id_from_sqlite(tmp_path: Path) -> None:
+    db = tmp_path / "foundry.sqlite"
+    state.init_db(db)
+    task = _task(task_id=12)
+    settings = _settings(db_path=db)
+    first_agent = OpencodeCliAgent(settings=settings)
+
+    with patch(
+        "foundry.agents.opencode_cli.run_cli_jsonl",
+        return_value=[
+            {"type": "step_start", "sessionID": "ses_db"},
+            {"type": "text", "sessionID": "ses_db", "part": {"text": "done"}},
+        ],
+    ):
+        first_agent.apply(task=task, worktree=tmp_path, input="hi")
+
+    second_agent = OpencodeCliAgent(settings=settings)
+    with patch(
+        "foundry.agents.opencode_cli.run_cli_jsonl",
+        return_value=[
+            {"type": "text", "sessionID": "ses_db", "part": {"text": "again"}}
+        ],
+    ) as run:
+        second_agent.apply(task=task, worktree=tmp_path, input="more")
+
+    cmd = run.call_args.args[0]
+    assert cmd[cmd.index("--session") + 1] == "ses_db"
 
 
 def test_apply_passes_model_dir_and_format(tmp_path: Path) -> None:
