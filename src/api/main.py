@@ -123,6 +123,17 @@ async def get_repos() -> list[dict]:
     return out
 
 
+@app.post("/api/fetch")
+async def trigger_fetch() -> dict:
+    """Pull open issues from GitHub and upsert new tasks into the DB."""
+    from foundry.stages.fetch import fetch
+
+    settings = _settings_or_raise()
+    state.init_db(settings.db_path)
+    tasks = fetch(settings)
+    return {"fetched": len(tasks)}
+
+
 @app.get("/api/repos/{repo:path}/memory", response_model=list[UiMemoryEntry])
 async def get_repo_memory(repo: str) -> list[UiMemoryEntry]:
     """List repo-level memory entries."""

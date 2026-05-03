@@ -103,3 +103,11 @@ export async function resetTask(id: number): Promise<UiTask> {
   }
   return (await res.json()) as UiTask;
 }
+
+export async function triggerFetch(): Promise<{ fetched: number }> {
+  const res = await fetch(apiUrl("/api/fetch"), { method: "POST" });
+  if (!res.ok) {
+    throw new Error(`fetch failed: ${res.status} ${res.statusText}`);
+  }
+  return (await res.json()) as { fetched: number };
+}
