@@ -161,7 +161,7 @@ async def test_pr_worktree_called_with_payload_args_and_cleaned_up(
     )
     with patch(
         "foundry.pr_worktree.prepare_pr_worktree", side_effect=fake_prepare
-    ), patch("foundry.orchestrator.make_agent", return_value=_FakeAgent()):
+    ), patch("foundry.runner.make_agent", return_value=_FakeAgent()):
         await orch.execute_run(
             run_id=rid,
             automation=auto,
@@ -194,7 +194,7 @@ async def test_missing_pr_review_base_path_fails_run_with_infra(
         session_id="s",
         status=RunStatus.RUNNING,
     )
-    with patch("foundry.orchestrator.make_agent", return_value=_FakeAgent()):
+    with patch("foundry.runner.make_agent", return_value=_FakeAgent()):
         await orch.execute_run(
             run_id=rid,
             automation=auto,

@@ -182,7 +182,7 @@ async def test_dev_task_event_to_done_uses_real_prompt_and_worktree(
 
     agent = _DoneAgent()
     orch = Orchestrator(settings, db_poll_sec=0.05)
-    with patch("foundry.orchestrator.make_agent", return_value=agent):
+    with patch("foundry.runner.make_agent", return_value=agent):
         await _drive_orchestrator_until(
             orch,
             expected_runs=1,
@@ -254,7 +254,7 @@ async def test_tg_chat_two_messages_share_session_and_use_fixed_cwd(
 
     agent = _DoneAgent()
     orch = Orchestrator(settings, db_poll_sec=0.05)
-    with patch("foundry.orchestrator.make_agent", return_value=agent):
+    with patch("foundry.runner.make_agent", return_value=agent):
         await _drive_orchestrator_until(
             orch,
             expected_runs=2,
@@ -309,7 +309,7 @@ async def test_pr_review_two_events_share_session_and_use_pr_worktree(
 
     agent = _DoneAgent()
     orch = Orchestrator(settings, db_poll_sec=0.05)
-    with patch("foundry.orchestrator.make_agent", return_value=agent):
+    with patch("foundry.runner.make_agent", return_value=agent):
         await _drive_orchestrator_until(
             orch,
             expected_runs=2,
@@ -353,7 +353,7 @@ async def test_dev_task_run_events_kinds_snapshot(
     )
 
     orch = Orchestrator(settings, db_poll_sec=0.05)
-    with patch("foundry.orchestrator.make_agent", return_value=_DoneAgent()):
+    with patch("foundry.runner.make_agent", return_value=_DoneAgent()):
         await _drive_orchestrator_until(
             orch,
             expected_runs=1,

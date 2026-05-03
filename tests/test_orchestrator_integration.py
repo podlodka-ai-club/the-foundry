@@ -87,7 +87,7 @@ async def test_end_to_end_event_to_done(tmp_path: Path) -> None:
         "foundry.orchestrator.get_automation",
         return_value=fake_automation,
     ), patch(
-        "foundry.orchestrator.make_agent", return_value=_StatusMarkerAgent()
+        "foundry.runner.make_agent", return_value=_StatusMarkerAgent()
     ):
         task = asyncio.create_task(orch.run_forever(stop))
         for _ in range(60):

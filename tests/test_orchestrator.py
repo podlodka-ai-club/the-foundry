@@ -18,7 +18,8 @@ from foundry.automations.registry import Automation
 from foundry.config import Settings
 from foundry.events import dispatch_event, read_events
 from foundry.models import Event, RunStatus
-from foundry.orchestrator import Orchestrator, _load_automation_prompt
+from foundry.orchestrator import Orchestrator
+from foundry.runner import _load_automation_prompt
 from foundry.state import (
     create_run,
     get_run,
@@ -175,7 +176,7 @@ async def test_run_forever_drains_pending_queue(tmp_path: Path) -> None:
         "foundry.events.automations_for_trigger", return_value=[auto]
     ), patch(
         "foundry.orchestrator.get_automation", return_value=auto
-    ), patch("foundry.orchestrator.make_agent", return_value=_FakeAgent()):
+    ), patch("foundry.runner.make_agent", return_value=_FakeAgent()):
         dispatch_event(
             settings.db_path,
             trigger_id="github_issues.issue_opened",
@@ -309,7 +310,7 @@ async def test_execute_run_writes_stage_started_finished_events(
         session_id="s",
         status=RunStatus.RUNNING,
     )
-    with patch("foundry.orchestrator.make_agent", return_value=_FakeAgent()):
+    with patch("foundry.runner.make_agent", return_value=_FakeAgent()):
         await orch.execute_run(
             run_id=rid, automation=auto, event=_event(1), session_id="s"
         )
@@ -335,7 +336,7 @@ async def test_execute_run_unclear_when_agent_did_not_mark_done(
         session_id="s",
         status=RunStatus.RUNNING,
     )
-    with patch("foundry.orchestrator.make_agent", return_value=_FakeAgent()):
+    with patch("foundry.runner.make_agent", return_value=_FakeAgent()):
         await orch.execute_run(
             run_id=rid, automation=auto, event=_event(1), session_id="s"
         )
@@ -364,7 +365,7 @@ async def test_execute_run_failed_with_infra_kind_on_exception(
         session_id="s",
         status=RunStatus.RUNNING,
     )
-    with patch("foundry.orchestrator.make_agent", return_value=_BoomAgent()):
+    with patch("foundry.runner.make_agent", return_value=_BoomAgent()):
         await orch.execute_run(
             run_id=rid, automation=auto, event=_event(1), session_id="s"
         )
@@ -391,7 +392,7 @@ async def test_execute_run_persists_agent_session_id(tmp_path: Path) -> None:
         status=RunStatus.RUNNING,
     )
     with patch(
-        "foundry.orchestrator.make_agent",
+        "foundry.runner.make_agent",
         return_value=_FakeAgent(session_id="sess-9"),
     ):
         await orch.execute_run(
