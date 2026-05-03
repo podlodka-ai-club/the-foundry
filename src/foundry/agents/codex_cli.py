@@ -63,9 +63,8 @@ class CodexCliAgent:
                 cmd,
                 cwd=worktree,
                 env=scrubbed_agent_env(self.name),
+                on_event=lambda ev: self._emit_for(task, ev),
             )
-            for event in events:
-                self._emit_for(task, event)
 
             new_session_id = self._extract_session_id(events)
             if new_session_id:

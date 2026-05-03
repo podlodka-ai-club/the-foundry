@@ -4,7 +4,7 @@ import json
 import subprocess
 import time
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 import structlog
 
@@ -68,13 +68,17 @@ def iter_cli_jsonl_with_retry(
     *,
     cwd: Path | None = None,
     env: dict[str, str] | None = None,
+    on_event: Callable[[dict[str, Any]], None] | None = None,
 ) -> list[dict[str, Any]]:
     """Run a streaming CLI command with rate-limit retry.
 
-    Unlike `iter_cli_jsonl`, collects all events into a list so the caller
-    gets a complete, consistent result even after a retry. Retries up to
-    ``len(_RETRY_DELAYS)`` times with exponential back-off when the process
-    exits with a rate-limit signal in stderr.
+    Collects all events into a list so the caller gets a complete, consistent
+    result even after a retry. Retries up to ``len(_RETRY_DELAYS)`` times with
+    exponential back-off when the process exits with a rate-limit signal.
+
+    If `on_event` is provided it is called for each event as it arrives,
+    enabling real-time side effects (e.g. writing to the event DB) without
+    waiting for the entire run to complete.
     """
     last_err: CliProcessError | None = None
     for attempt, delay in enumerate(
@@ -89,7 +93,12 @@ def iter_cli_jsonl_with_retry(
             )
             time.sleep(delay)
         try:
-            return list(iter_cli_jsonl(cmd, cwd=cwd, env=env))
+            collected: list[dict[str, Any]] = []
+            for ev in iter_cli_jsonl(cmd, cwd=cwd, env=env):
+                if on_event is not None:
+                    on_event(ev)
+                collected.append(ev)
+            return collected
         except CliProcessError as exc:
             if _is_rate_limit_error(exc):
                 last_err = exc
