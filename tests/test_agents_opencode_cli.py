@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-from foundry.agents import AgentSettings, AgentStage, AgentTask
+from foundry.agents import AgentSettings, AgentTask
 from foundry.agents.opencode_cli import OpencodeCliAgent
 
 
@@ -13,7 +13,6 @@ def _task(task_id: int = 1) -> AgentTask:
 
 def _settings(**overrides: object) -> AgentSettings:
     defaults: dict = {
-        "stage": AgentStage.IMPLEMENT,
         "backend": "opencode_cli",
         "timeout_sec": 60,
         "max_turns": 3,

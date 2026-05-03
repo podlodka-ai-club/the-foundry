@@ -3,18 +3,8 @@ from __future__ import annotations
 import json
 import subprocess
 from dataclasses import dataclass
-from enum import StrEnum
 from pathlib import Path
 from typing import Protocol
-
-
-PROMPTS_DIR = Path(__file__).parent / "prompts"
-
-
-class AgentStage(StrEnum):
-    PLAN = "plan"
-    IMPLEMENT = "implement"
-    VERIFY = "verify"
 
 
 @dataclass(frozen=True)
@@ -26,7 +16,6 @@ class AgentTask:
 
 @dataclass(frozen=True)
 class AgentResult:
-    stage: AgentStage
     response: str
     result: str
     cost_usd: float | None = None
@@ -36,7 +25,6 @@ class AgentResult:
 
 class CodingAgent(Protocol):
     name: str
-    stage: AgentStage
 
     def apply(
         self,
@@ -54,25 +42,6 @@ def first_line(text: str, limit: int = 200) -> str:
         if stripped:
             return stripped[:limit]
     return ""
-
-
-def load_prompt_template(stage: AgentStage) -> str:
-    return (PROMPTS_DIR / f"{stage.value}.md").read_text(encoding="utf-8")
-
-
-def build_fresh_prompt(stage: AgentStage, task: AgentTask, input: str) -> str:
-    """Compose the initial prompt the first time an agent sees a task.
-
-    Template lives at `src/foundry/agents/prompts/<stage>.md` and owns the
-    role description, rules, and output format. Caller only supplies `input`
-    (plan text for implement, diff for verify, clarification hints, ...).
-    """
-    template = load_prompt_template(stage)
-    return template.format(
-        title=task.title,
-        description=task.description,
-        input=input,
-    )
 
 
 def run_cli_jsonl(cmd: list[str], *, cwd: Path, timeout_sec: int) -> list[dict]:

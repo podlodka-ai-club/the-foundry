@@ -19,7 +19,7 @@ from unittest.mock import patch
 
 import pytest
 
-from foundry.agents.base import AgentResult, AgentStage, AgentTask
+from foundry.agents.base import AgentResult, AgentTask
 from foundry.automations.registry import DEV_TASK, PR_REVIEW, TG_CHAT
 from foundry.config import Settings
 from foundry.events import dispatch_event, read_events
@@ -55,7 +55,6 @@ class _DoneAgent:
     on backend / model / prompt content."""
 
     name = "fake"
-    stage = AgentStage.IMPLEMENT
 
     def __init__(self) -> None:
         self.tasks: list[AgentTask] = []
@@ -67,7 +66,6 @@ class _DoneAgent:
         self.inputs.append(input)
         self.worktrees.append(worktree)
         return AgentResult(
-            stage=self.stage,
             response="Done.\n\nSTATUS: done",
             result="Done.",
         )

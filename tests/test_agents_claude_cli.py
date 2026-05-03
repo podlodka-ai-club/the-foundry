@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-from foundry.agents import AgentSettings, AgentStage, AgentTask
+from foundry.agents import AgentSettings, AgentTask
 from foundry.agents.claude_cli import ClaudeCliAgent
 from foundry.agents.context import agent_event_context
 from foundry.events import read_events
@@ -14,9 +14,8 @@ def _task(task_id: int = 1) -> AgentTask:
     return AgentTask(id=task_id, title="t", description="d")
 
 
-def _settings(stage: AgentStage = AgentStage.IMPLEMENT, **overrides: object) -> AgentSettings:
+def _settings(**overrides: object) -> AgentSettings:
     defaults: dict = {
-        "stage": stage,
         "backend": "claude_cli",
         "timeout_sec": 60,
         "max_turns": 3,

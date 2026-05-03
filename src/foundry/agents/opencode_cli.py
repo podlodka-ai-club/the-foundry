@@ -5,9 +5,7 @@ from pathlib import Path
 from .. import observability
 from .base import (
     AgentResult,
-    AgentStage,
     AgentTask,
-    build_fresh_prompt,
     first_line,
     run_cli_jsonl,
 )
@@ -17,9 +15,9 @@ from .config import AgentSettings
 class OpencodeCliAgent:
     """Backend shelling out to the `opencode` CLI.
 
-    Bound to one stage at construction time. `opencode run --format json`
-    emits NDJSON events; resume uses `--session <id>` on subsequent calls.
-    Provider auth is supplied via env (e.g. `OPENROUTER_API_KEY`).
+    ``opencode run --format json`` emits NDJSON events; resume uses
+    ``--session <id>`` on subsequent calls. Provider auth is supplied via
+    env (e.g. ``OPENROUTER_API_KEY``).
 
     TODO(PR3.5): stream events via `iter_cli_jsonl` and emit `agent_tool` /
     `agent_text` / `agent_result` into `run_events`. Opencode's NDJSON
@@ -32,7 +30,6 @@ class OpencodeCliAgent:
 
     def __init__(self, settings: AgentSettings) -> None:
         self._settings = settings
-        self.stage: AgentStage = settings.stage
         self._sessions: dict[int, str] = {}
 
     def apply(
@@ -42,10 +39,7 @@ class OpencodeCliAgent:
         input: str = "",
     ) -> AgentResult:
         resume_id = self.get_session_id(task)
-        if resume_id is None:
-            message = build_fresh_prompt(self.stage, task, input)
-        else:
-            message = input
+        message = input
 
         cmd: list[str] = [
             "opencode", "run",
@@ -74,7 +68,6 @@ class OpencodeCliAgent:
             observability.update_generation(gen, output=response, usage=usage)
 
         return AgentResult(
-            stage=self.stage,
             response=response,
             result=first_line(response),
         )

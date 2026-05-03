@@ -7,9 +7,7 @@ from .. import observability
 from ..events import record_event
 from .base import (
     AgentResult,
-    AgentStage,
     AgentTask,
-    build_fresh_prompt,
     first_line,
 )
 from .config import AgentSettings
@@ -17,17 +15,21 @@ from .context import get_parent_event_seq
 from .streaming import _normalize_tool_event, iter_cli_jsonl
 
 
+_AGENT_STAGE = "agent"
+
+
 class ClaudeCliAgent:
     """Backend shelling out to the `claude` CLI (Anthropic subscription OAuth).
 
-    Bound to one stage at construction time. Session state is private,
-    keyed by task id: first call for a given task renders the prompt
-    template from `prompts/<stage>.md`; subsequent calls pass
-    `--resume <id>` with just `input`.
+    Session state is private, keyed by task id: first call for a given task
+    uses the caller-supplied prompt verbatim; subsequent calls pass
+    `--resume <id>` with the same input. There is no built-in template wrap
+    — the caller (orchestrator) is responsible for producing a complete
+    prompt.
 
     Events are streamed line-by-line via `iter_cli_jsonl` and mirrored into
     `run_events` (`agent_tool` / `agent_text` / `agent_thinking` /
-    `agent_result`) so the UI can watch a stage as it runs. The
+    `agent_result`) so the UI can watch a run as it progresses. The
     `AgentResult` contract is unchanged — streaming is purely a side
     channel.
     """
@@ -36,7 +38,6 @@ class ClaudeCliAgent:
 
     def __init__(self, settings: AgentSettings) -> None:
         self._settings = settings
-        self.stage: AgentStage = settings.stage
         self._sessions: dict[int, str] = {}
 
     def apply(
@@ -46,10 +47,7 @@ class ClaudeCliAgent:
         input: str = "",
     ) -> AgentResult:
         resume_id = self.get_session_id(task)
-        if resume_id is None:
-            prompt = build_fresh_prompt(self.stage, task, input)
-        else:
-            prompt = input
+        prompt = input
 
         cmd: list[str] = [
             "claude",
@@ -101,7 +99,6 @@ class ClaudeCliAgent:
             )
 
         return AgentResult(
-            stage=self.stage,
             response=response,
             result=first_line(response),
             cost_usd=cost_usd,
@@ -153,7 +150,7 @@ class ClaudeCliAgent:
         record_event(
             self._settings.db_path,
             run_id=task.id,
-            stage=self.stage.value,
+            stage=_AGENT_STAGE,
             kind=kind,
             payload=payload,
             parent_event_seq=get_parent_event_seq(),

@@ -3,25 +3,28 @@ from __future__ import annotations
 from pathlib import Path
 
 from ..events import record_event
-from .base import AgentResult, AgentStage, AgentTask, first_line
+from .base import AgentResult, AgentTask, first_line
 from .config import AgentSettings
 from .context import get_parent_event_seq
+
+
+_AGENT_STAGE = "agent"
 
 
 class StubAgent:
     """Offline agent — no external calls. Used for CI and local smoke tests.
 
-    Bound to one stage at construction time. Behavior per stage:
-    - PLAN: returns a trivial plan text.
-    - IMPLEMENT: appends a single line to README.md in the worktree.
-    - VERIFY: always passes.
+    Behaviour: append one line to README.md in the worktree (creating it if
+    missing) and return a deterministic summary. Mirrors a tiny subset of
+    `agent_tool` / `agent_result` events into ``run_events`` when a
+    ``db_path`` is configured, so observability tests have something to
+    assert on.
     """
 
     name = "stub"
 
     def __init__(self, settings: AgentSettings) -> None:
         self._settings = settings
-        self.stage = settings.stage
 
     def apply(
         self,
@@ -30,44 +33,16 @@ class StubAgent:
         input: str = "",
     ) -> AgentResult:
         self._emit(task, kind="agent_thinking", payload={"text": "stub: thinking..."})
-
-        match self.stage:
-            case AgentStage.PLAN:
-                self._emit(
-                    task,
-                    kind="agent_tool",
-                    payload={"tool": "Read", "detail": "README.md"},
-                )
-                response = (
-                    f"stub plan for issue #{task.id}\n\n"
-                    f"Title: {task.title}\n"
-                    f"Plan: append one line to README.md"
-                )
-            case AgentStage.IMPLEMENT:
-                self._emit(
-                    task,
-                    kind="agent_tool",
-                    payload={"tool": "Edit", "detail": "README.md"},
-                )
-                response = self._append_readme_line(worktree, task)
-            case AgentStage.VERIFY:
-                self._emit(
-                    task,
-                    kind="agent_tool",
-                    payload={"tool": "Bash", "detail": "echo ok"},
-                )
-                response = "PASS\nstub always verifies PASS"
-            case _:
-                raise NotImplementedError(f"unknown stage: {self.stage!r}")
-
+        self._emit(
+            task,
+            kind="agent_tool",
+            payload={"tool": "Edit", "detail": "README.md"},
+        )
+        response = self._append_readme_line(worktree, task)
         summary = first_line(response)
         self._emit(task, kind="agent_result", payload={"summary": summary})
 
-        return AgentResult(
-            stage=self.stage,
-            response=response,
-            result=summary,
-        )
+        return AgentResult(response=response, result=summary)
 
     def _emit(self, task: AgentTask, *, kind: str, payload: dict) -> None:
         """Emit a synthetic event for UI observability.
@@ -82,7 +57,7 @@ class StubAgent:
         record_event(
             self._settings.db_path,
             run_id=task.id,
-            stage=self.stage.value,
+            stage=_AGENT_STAGE,
             kind=kind,
             payload=payload,
             parent_event_seq=get_parent_event_seq(),

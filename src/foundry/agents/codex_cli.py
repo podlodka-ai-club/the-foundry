@@ -5,9 +5,7 @@ from pathlib import Path
 from .. import observability
 from .base import (
     AgentResult,
-    AgentStage,
     AgentTask,
-    build_fresh_prompt,
     first_line,
     run_cli_jsonl,
 )
@@ -17,10 +15,9 @@ from .config import AgentSettings
 class CodexCliAgent:
     """Backend shelling out to the `codex` CLI (OpenAI Codex).
 
-    Bound to one stage at construction time. Fresh runs use
-    `codex exec --json ...`; resume uses `codex exec resume <thread_id> ...`
-    — resume is a subcommand rather than a flag, so the command is assembled
-    differently in each branch.
+    Fresh runs use ``codex exec --json ...``; resume uses
+    ``codex exec resume <thread_id> ...`` — resume is a subcommand rather
+    than a flag, so the command is assembled differently in each branch.
 
     TODO(PR3.5): stream events via `iter_cli_jsonl` and emit `agent_tool` /
     `agent_text` / `agent_result` into `run_events`. Codex uses a different
@@ -34,7 +31,6 @@ class CodexCliAgent:
 
     def __init__(self, settings: AgentSettings) -> None:
         self._settings = settings
-        self.stage: AgentStage = settings.stage
         self._sessions: dict[int, str] = {}
 
     def apply(
@@ -44,11 +40,10 @@ class CodexCliAgent:
         input: str = "",
     ) -> AgentResult:
         resume_id = self.get_session_id(task)
+        prompt = input
         if resume_id is None:
-            prompt = build_fresh_prompt(self.stage, task, input)
             cmd = self._fresh_cmd(worktree, prompt)
         else:
-            prompt = input
             cmd = self._resume_cmd(worktree, resume_id, prompt)
 
         with observability.track_generation(
@@ -67,7 +62,6 @@ class CodexCliAgent:
             observability.update_generation(gen, output=response, usage=usage)
 
         return AgentResult(
-            stage=self.stage,
             response=response,
             result=first_line(response),
         )

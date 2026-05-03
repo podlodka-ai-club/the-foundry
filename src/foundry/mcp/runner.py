@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from foundry.agents.base import AgentStage, AgentTask
+from foundry.agents.base import AgentTask
 from foundry.agents.config import AgentSettings
 from foundry.agents.context import agent_event_context
 from foundry.agents.factory import make_agent
@@ -56,7 +56,6 @@ def run_subagent(*, name: str, prompt: str, caller_id: str) -> dict[str, Any]:
     )
 
     settings = AgentSettings(
-        stage=AgentStage.IMPLEMENT,
         backend=sub.backend,
         model=sub.model or "haiku",
         db_path=db_path,
