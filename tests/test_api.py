@@ -64,6 +64,7 @@ def test_get_tasks_returns_ui_tasks(client: TestClient, _setup_env: Path) -> Non
         "stage_finished",
         {"duration_ms": 100, "cost_usd": 0.05, "tokens_in": 10, "tokens_out": 20},
     )
+    state.save_repo_memory(db, "owner/repo", "verify_commands", ["pytest -q"])
 
     # Act
     response = client.get("/api/tasks")
@@ -82,6 +83,7 @@ def test_get_tasks_returns_ui_tasks(client: TestClient, _setup_env: Path) -> Non
     assert item["tokens_in_total"] == 10
     assert item["tokens_out_total"] == 20
     assert item["duration_ms_total"] == 100
+    assert item["memory"][0]["key"] == "verify_commands"
 
 
 def test_get_task_detail_includes_events(client: TestClient, _setup_env: Path) -> None:
@@ -246,3 +248,20 @@ def test_get_repos_counts(client: TestClient, _setup_env: Path) -> None:
         "FAILED": 1,
         "PENDING": 1,
     }
+
+
+def test_get_repo_memory(client: TestClient, _setup_env: Path) -> None:
+    db = _setup_env
+    state.save_repo_memory(db, "owner/repo", "touched_files", ["src/app.py"])
+
+    response = client.get("/api/repos/owner/repo/memory")
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "repo": "owner/repo",
+            "key": "touched_files",
+            "value": ["src/app.py"],
+            "updated_at": response.json()[0]["updated_at"],
+        }
+    ]

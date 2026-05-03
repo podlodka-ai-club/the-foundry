@@ -44,6 +44,13 @@ class UiEvent(BaseModel):
     payload: dict[str, Any]
 
 
+class UiMemoryEntry(BaseModel):
+    repo: str
+    key: str
+    value: Any
+    updated_at: str
+
+
 class UiTask(BaseModel):
     id: int
     repo: str
@@ -62,6 +69,7 @@ class UiTask(BaseModel):
     tokens_out_total: int = 0
     duration_ms_total: int = 0
     stages: dict[str, UiStage] = Field(default_factory=dict)
+    memory: list[UiMemoryEntry] = Field(default_factory=list)
     events: list[UiEvent] | None = None
 
 
@@ -71,6 +79,7 @@ def project_task(
     *,
     include_events: bool = False,
     events_limit: int = 200,
+    memory: list[dict[str, Any]] | None = None,
 ) -> UiTask:
     """Fold Task + its events into a UI-friendly projection.
 
@@ -166,5 +175,6 @@ def project_task(
         tokens_out_total=tokens_out_total,
         duration_ms_total=duration_ms_total,
         stages=stages,
+        memory=[UiMemoryEntry(**entry) for entry in (memory or [])],
         events=ui_events,
     )

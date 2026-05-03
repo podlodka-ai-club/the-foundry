@@ -103,6 +103,26 @@ def test_stage_results_round_trip_by_attempt(tmp_path: Path) -> None:
         2,
         {"result": "changed"},
     )
+    assert state.list_stage_results(db, task.id, Stage.IMPLEMENT) == [
+        (2, {"result": "changed"})
+    ]
+
+
+def test_repo_memory_round_trip(tmp_path: Path) -> None:
+    db = tmp_path / "f.sqlite"
+    state.init_db(db)
+
+    state.save_repo_memory(db, "owner/repo", "touched_files", ["src/app.py"])
+    state.save_repo_memory(db, "owner/repo", "touched_files", ["src/api.py"])
+    state.save_repo_memory(db, "owner/repo", "verify_commands", ["pytest -q"])
+
+    assert state.get_repo_memory(db, "owner/repo", "touched_files") == ["src/api.py"]
+    entries = state.list_repo_memory(db, "owner/repo")
+    assert [(e["key"], e["value"]) for e in entries] == [
+        ("touched_files", ["src/api.py"]),
+        ("verify_commands", ["pytest -q"]),
+    ]
+    assert all(e["updated_at"] for e in entries)
 
 
 def test_agent_sessions_round_trip(tmp_path: Path) -> None:

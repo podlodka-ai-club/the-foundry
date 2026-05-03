@@ -31,6 +31,13 @@ export interface UiEvent {
   payload: Record<string, unknown>;
 }
 
+export interface UiMemoryEntry {
+  repo: string;
+  key: string;
+  value: unknown;
+  updated_at: string;
+}
+
 export interface UiTask {
   id: number;
   repo: string;
@@ -49,6 +56,7 @@ export interface UiTask {
   tokens_out_total: number;
   duration_ms_total: number;
   stages: Record<string, UiStage>;
+  memory: UiMemoryEntry[];
   events?: UiEvent[] | null;
 }
 

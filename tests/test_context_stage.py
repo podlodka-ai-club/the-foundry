@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from foundry import state
 from foundry.config import Settings
 from foundry.models import Task
 from foundry.stages import context
@@ -41,14 +42,20 @@ def test_context_stage_builds_repo_map_and_relevant_files(tmp_path: Path) -> Non
         "def test_context_stage():\n    assert True\n",
         encoding="utf-8",
     )
+    settings = _settings(tmp_path)
+    state.init_db(settings.db_path)
+    state.save_repo_memory(
+        settings.db_path, "owner/sandbox", "touched_files", ["src/app.py"]
+    )
 
-    out = context.run(_task(), _settings(tmp_path), repo_path=repo)
+    out = context.run(_task(), settings, repo_path=repo)
 
     assert {"language": "Python", "files": 2} in out["languages"]
     assert out["manifest_files"] == ["pyproject.toml"]
     assert out["test_commands"] == ["ruff check .", "pytest -x --no-header -q"]
     assert "context" in out["keywords"]
     assert out["relevant_files"][0]["path"] == "src/context.py"
+    assert out["repo_memory"][0]["key"] == "touched_files"
     assert out["files"][0] == "src/context.py"
 
 
@@ -62,6 +69,9 @@ def test_format_for_prompt_includes_context_sections() -> None:
             "relevant_files": [
                 {"path": "src/foundry/stages/context.py", "matched_keywords": ["context"]}
             ],
+            "repo_memory": [
+                {"repo": "owner/repo", "key": "verify_commands", "value": ["pytest -q"]}
+            ],
         }
     )
 
@@ -69,3 +79,5 @@ def test_format_for_prompt_includes_context_sections() -> None:
     assert "`pyproject.toml`" in prompt
     assert "`pytest -q`" in prompt
     assert "`src/foundry/stages/context.py`" in prompt
+    assert "### Repo memory" in prompt
+    assert "`verify_commands`" in prompt

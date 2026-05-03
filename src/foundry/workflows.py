@@ -671,6 +671,7 @@ def dev_task(settings: Settings, task: Task) -> Task:
             finish(output={"pr_url": pr_result["pr_url"]})
         state.save_stage_result(settings.db_path, task.id, Stage.PR, pr_result)
         state.append_log(settings.db_path, task.id, Stage.PR, pr_result)
+        _save_successful_pr_memory(settings, task, pr_result, ctx)
     else:
         task.pr_url = pr_result.get("pr_url")
 
@@ -678,6 +679,54 @@ def dev_task(settings: Settings, task: Task) -> Task:
     worktree.cleanup_worktree(base, wt_path)
     log.info("workflow.dev_task.done", task_id=task.id, pr_url=task.pr_url)
     return task
+
+
+def _save_successful_pr_memory(
+    settings: Settings,
+    task: Task,
+    pr_result: dict[str, Any],
+    ctx: dict[str, Any],
+) -> None:
+    if task.id is None:
+        return
+
+    touched_files = pr_result.get("touched_files") or ctx.get("files") or []
+    if touched_files:
+        state.save_repo_memory(
+            settings.db_path, task.repo, "touched_files", touched_files
+        )
+
+    verify_commands = ctx.get("test_commands") or []
+    if verify_commands:
+        state.save_repo_memory(
+            settings.db_path, task.repo, "verify_commands", verify_commands
+        )
+
+    common_failures = _common_verify_failures(settings.db_path, task.id)
+    if common_failures:
+        state.save_repo_memory(
+            settings.db_path, task.repo, "common_failures", common_failures
+        )
+
+
+def _common_verify_failures(db_path: Path, task_id: int) -> list[dict[str, str]]:
+    failures: list[dict[str, str]] = []
+    for attempt, output in state.list_stage_results(db_path, task_id, Stage.VERIFY):
+        if output.get("passed") is True:
+            continue
+        report = str(output.get("report") or "").strip()
+        failure_kind = str(output.get("failure_kind") or "unknown")
+        if not report and output.get("stdout"):
+            report = str(output["stdout"]).strip()
+        if report:
+            failures.append(
+                {
+                    "attempt": str(attempt),
+                    "failure_kind": failure_kind,
+                    "report": report[:1000],
+                }
+            )
+    return failures[-5:]
 
 
 @observe(name="workflow.pr_verify")

@@ -59,6 +59,14 @@ CREATE TABLE IF NOT EXISTS agent_sessions (
     updated_at TEXT NOT NULL,
     PRIMARY KEY (task_id, stage, backend)
 );
+
+CREATE TABLE IF NOT EXISTS repo_memory (
+    repo TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (repo, key)
+);
 """
 
 
@@ -265,6 +273,74 @@ def get_latest_stage_result(
         if row is None:
             return None
         return int(row["attempt"]), json.loads(row["output_json"])
+
+
+def list_stage_results(
+    db_path: Path,
+    task_id: int,
+    stage: Stage,
+) -> list[tuple[int, dict]]:
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT attempt, output_json FROM stage_results
+            WHERE task_id = ? AND stage = ?
+            ORDER BY attempt ASC
+            """,
+            (task_id, stage.value),
+        ).fetchall()
+        return [(int(row["attempt"]), json.loads(row["output_json"])) for row in rows]
+
+
+def save_repo_memory(db_path: Path, repo: str, key: str, value: object) -> None:
+    now = _now_iso()
+    with _connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO repo_memory (repo, key, value, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(repo, key) DO UPDATE SET
+                value = excluded.value,
+                updated_at = excluded.updated_at
+            """,
+            (repo, key, json.dumps(value), now),
+        )
+
+
+RepoMemoryValue = dict | list | str | int | float | bool | None
+
+
+def get_repo_memory(db_path: Path, repo: str, key: str) -> RepoMemoryValue:
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT value FROM repo_memory
+            WHERE repo = ? AND key = ?
+            """,
+            (repo, key),
+        ).fetchone()
+        return json.loads(row["value"]) if row else None
+
+
+def list_repo_memory(db_path: Path, repo: str) -> list[dict[str, object]]:
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT repo, key, value, updated_at FROM repo_memory
+            WHERE repo = ?
+            ORDER BY key ASC
+            """,
+            (repo,),
+        ).fetchall()
+        return [
+            {
+                "repo": row["repo"],
+                "key": row["key"],
+                "value": json.loads(row["value"]),
+                "updated_at": row["updated_at"],
+            }
+            for row in rows
+        ]
 
 
 def save_agent_session(

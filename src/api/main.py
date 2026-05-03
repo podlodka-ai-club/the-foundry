@@ -9,7 +9,7 @@ from foundry.config import ConfigError, load_settings
 from foundry.events import read_events
 from foundry.models import Stage, TaskStatus
 
-from .projections import UiTask, project_task
+from .projections import UiMemoryEntry, UiTask, project_task
 from .sse import router as sse_router
 
 app = FastAPI(title="The Foundry API")
@@ -39,7 +39,8 @@ async def get_tasks() -> list[UiTask]:
     result: list[UiTask] = []
     for task in tasks:
         events = read_events(settings.db_path, task.id) if task.id is not None else []
-        result.append(project_task(task, events, include_events=False))
+        memory = state.list_repo_memory(settings.db_path, task.repo)
+        result.append(project_task(task, events, include_events=False, memory=memory))
     return result
 
 
@@ -53,7 +54,10 @@ async def get_task(task_id: int) -> UiTask:
     if task is None:
         raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
     events = read_events(settings.db_path, task_id)
-    return project_task(task, events, include_events=True, events_limit=200)
+    memory = state.list_repo_memory(settings.db_path, task.repo)
+    return project_task(
+        task, events, include_events=True, events_limit=200, memory=memory
+    )
 
 
 @app.post("/api/tasks/{task_id}/reset", response_model=UiTask)
@@ -84,7 +88,10 @@ def _reset_task(task_id: int) -> UiTask:
     task = state.upsert_task(settings.db_path, task)
 
     events = read_events(settings.db_path, task_id)
-    return project_task(task, events, include_events=True, events_limit=200)
+    memory = state.list_repo_memory(settings.db_path, task.repo)
+    return project_task(
+        task, events, include_events=True, events_limit=200, memory=memory
+    )
 
 
 @app.get("/api/repos")
@@ -114,3 +121,13 @@ async def get_repos() -> list[dict]:
             }
         )
     return out
+
+
+@app.get("/api/repos/{repo:path}/memory", response_model=list[UiMemoryEntry])
+async def get_repo_memory(repo: str) -> list[UiMemoryEntry]:
+    """List repo-level memory entries."""
+    settings = _settings_or_raise()
+    state.init_db(settings.db_path)
+
+    entries = state.list_repo_memory(settings.db_path, repo)
+    return [UiMemoryEntry(**entry) for entry in entries]

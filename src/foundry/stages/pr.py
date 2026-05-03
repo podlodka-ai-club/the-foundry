@@ -25,7 +25,9 @@ def run(
     body.
     """
     commit_message = f"foundry: task #{task.issue_number} — {task.issue_title}"
-    commit_and_push_changes(task, worktree_path, branch_name, commit_message)
+    commit_result = commit_and_push_changes(
+        task, worktree_path, branch_name, commit_message
+    )
 
     body_parts = [
         "Automated PR from The Foundry (skeleton mode).",
@@ -59,7 +61,12 @@ def run(
         cwd=worktree_path,
     )
 
-    return {"pr_url": pr_url, "branch": branch_name}
+    return {
+        "pr_url": pr_url,
+        "branch": branch_name,
+        "touched_files": commit_result["touched_files"],
+        "files_changed": commit_result["files_changed"],
+    }
 
 
 MAX_FILES_PER_PR = 40
@@ -80,10 +87,15 @@ def commit_and_push_changes(
     if not changes:
         raise RuntimeError("implement stage produced no changes — nothing to commit")
     _sanity_check_changes(changes)
+    touched_files = [_porcelain_path(line) for line in changes]
 
     shell.run(["git", "commit", "-m", commit_message], cwd=worktree_path)
     shell.run(["git", "push", "-u", "origin", branch_name], cwd=worktree_path)
-    return {"branch": branch_name, "files_changed": len(changes)}
+    return {
+        "branch": branch_name,
+        "files_changed": len(changes),
+        "touched_files": touched_files,
+    }
 
 
 def _sanity_check_changes(porcelain_lines: list[str]) -> None:
@@ -99,10 +111,17 @@ def _sanity_check_changes(porcelain_lines: list[str]) -> None:
         )
     bad: list[str] = []
     for line in porcelain_lines:
-        path = line[3:].strip() if len(line) > 3 else line.strip()
+        path = _porcelain_path(line)
         if any(sub in path for sub in FORBIDDEN_PATH_SUBSTRINGS):
             bad.append(path)
     if bad:
         raise RuntimeError(
             f"refusing to commit: forbidden paths in agent changes: {bad[:5]}"
         )
+
+
+def _porcelain_path(line: str) -> str:
+    path = line[3:].strip() if len(line) > 3 else line.strip()
+    if " -> " in path:
+        return path.split(" -> ", 1)[1].strip()
+    return path

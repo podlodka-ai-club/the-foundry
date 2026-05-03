@@ -4,6 +4,7 @@ import re
 from collections import Counter
 from pathlib import Path
 
+from .. import state
 from ..config import Settings
 from ..models import Task
 
@@ -117,6 +118,8 @@ def run(
     keywords = _issue_keywords(task)
     relevant_files = _relevant_files(root, files, keywords)
     test_commands = _test_commands(root, settings, manifests)
+    state.init_db(settings.db_path)
+    repo_memory = state.list_repo_memory(settings.db_path, task.repo)
 
     return {
         "repo": task.repo,
@@ -126,6 +129,7 @@ def run(
         "test_commands": test_commands,
         "keywords": keywords,
         "relevant_files": relevant_files,
+        "repo_memory": repo_memory,
         "files": [f["path"] for f in relevant_files],
     }
 
@@ -156,7 +160,27 @@ def format_for_prompt(ctx: dict) -> str:
             matched = ", ".join(item.get("matched_keywords", []))
             suffix = f" ({matched})" if matched else ""
             lines.append(f"- `{item['path']}`{suffix}")
+        lines.append("")
+    if ctx.get("repo_memory"):
+        lines.append("### Repo memory")
+        for item in ctx["repo_memory"]:
+            lines.append(f"- `{item['key']}`: {_format_memory_value(item.get('value'))}")
     return "\n".join(lines).strip()
+
+
+def _format_memory_value(value: object) -> str:
+    if isinstance(value, list):
+        return ", ".join(f"`{str(item)}`" for item in value[:12]) or "[]"
+    if isinstance(value, dict):
+        parts: list[str] = []
+        for key, item in list(value.items())[:8]:
+            if isinstance(item, list):
+                rendered = ", ".join(f"`{str(v)}`" for v in item[:6])
+            else:
+                rendered = f"`{item}`"
+            parts.append(f"{key}: {rendered}")
+        return "; ".join(parts) or "{}"
+    return f"`{value}`"
 
 
 def _resolve_repo_path(task: Task, repo_path: Path | None) -> Path:

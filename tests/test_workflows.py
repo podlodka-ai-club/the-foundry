@@ -117,7 +117,12 @@ def _dev_task_patches(tmp_path: Path) -> dict[str, dict]:
             "return_value": {"plan": "do X", "summary": "plan"}
         },
         "foundry.workflows.pr_stage.run": {
-            "return_value": {"pr_url": "https://example/pr/1", "branch": "foundry/task-1"},
+            "return_value": {
+                "pr_url": "https://example/pr/1",
+                "branch": "foundry/task-1",
+                "touched_files": ["src/app.py", "tests/test_app.py"],
+                "files_changed": 2,
+            },
         },
         "foundry.workflows.security.checkpoint_diff": {
             "return_value": tmp_path / "data" / "checkpoints" / "snap.diff",
@@ -184,6 +189,17 @@ def test_dev_task_pass_after_retry_opens_pr(tmp_path: Path) -> None:
     assert [e.payload["input"]["attempt"] for e in implement_started] == [1, 2]
     assert [e.payload["output"]["attempt"] for e in verify_finished] == [1, 2]
     assert verify_finished[-1].payload["output"]["passed"] is True
+    assert state.get_repo_memory(settings.db_path, "owner/sandbox", "touched_files") == [
+        "src/app.py",
+        "tests/test_app.py",
+    ]
+    assert state.get_repo_memory(settings.db_path, "owner/sandbox", "common_failures") == [
+        {
+            "attempt": "1",
+            "failure_kind": "acceptance",
+            "report": "missing file",
+        }
+    ]
 
 
 def test_dev_task_resumes_verify_after_process_dies_post_implement(

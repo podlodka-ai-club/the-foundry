@@ -39,6 +39,20 @@ function pickDefaultStage(task: UiTask): string {
   return STAGES[0].id;
 }
 
+function formatMemoryValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) =>
+        typeof item === "object" && item !== null ? JSON.stringify(item) : String(item),
+      )
+      .join(", ");
+  }
+  if (typeof value === "object" && value !== null) {
+    return JSON.stringify(value);
+  }
+  return String(value ?? "");
+}
+
 export default function TaskDetails({
   task,
   events,
@@ -238,6 +252,48 @@ export default function TaskDetails({
           Reset
         </button>
       </div>
+
+      {task.memory.length > 0 && (
+        <div className="card" style={{ padding: "14px 18px" }}>
+          <div
+            style={{
+              fontSize: 10,
+              letterSpacing: ".1em",
+              textTransform: "uppercase",
+              color: "var(--fg-2)",
+              fontWeight: 600,
+              marginBottom: 10,
+            }}
+          >
+            Repo memory
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {task.memory.map((entry) => (
+              <div
+                key={entry.key}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "150px 1fr",
+                  gap: 12,
+                  minWidth: 0,
+                  fontSize: 11.5,
+                }}
+              >
+                <span className="mono" style={{ color: "var(--fg-1)" }}>
+                  {entry.key}
+                </span>
+                <span
+                  className="mono ellipsis"
+                  style={{ color: "var(--fg-2)" }}
+                  title={formatMemoryValue(entry.value)}
+                >
+                  {formatMemoryValue(entry.value)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Stage timeline */}
       <div className="card" style={{ padding: "16px 22px 12px", position: "relative" }}>
