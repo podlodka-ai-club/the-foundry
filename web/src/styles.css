@@ -363,6 +363,7 @@ a { color: inherit; text-decoration: none; }
 }
 .search input::placeholder { color: var(--fg-2); }
 .search svg { width: 12px; height: 12px; color: var(--fg-2); }
+.search:focus-within { border-color: var(--border-strong); background: var(--bg-2); }
 
 /* Generic card */
 .card {

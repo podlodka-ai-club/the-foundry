@@ -5,7 +5,15 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { triggerFetch } from "../api";
 
-export default function Topbar(): JSX.Element {
+interface TopbarProps {
+  searchQuery: string;
+  onSearchQueryChange: (value: string) => void;
+}
+
+export default function Topbar({
+  searchQuery,
+  onSearchQueryChange,
+}: TopbarProps): JSX.Element {
   const queryClient = useQueryClient();
   const [pulling, setPulling] = useState(false);
   const [pullResult, setPullResult] = useState<string | null>(null);
@@ -18,7 +26,7 @@ export default function Topbar(): JSX.Element {
       setPullResult(`+${fetched}`);
       await queryClient.invalidateQueries({ queryKey: ["tasks"] });
       await queryClient.invalidateQueries({ queryKey: ["repos"] });
-    } catch (e) {
+    } catch {
       setPullResult("err");
     } finally {
       setPulling(false);
@@ -33,14 +41,13 @@ export default function Topbar(): JSX.Element {
 
       <span className="topbar-spacer" />
 
-      <div
-        className="search"
-        aria-disabled="true"
-        title="Поиск появится позже"
-        style={{ opacity: 0.7, pointerEvents: "none" }}
-      >
+      <div className="search">
         <Search />
-        <input placeholder="Поиск по задачам…" disabled />
+        <input
+          value={searchQuery}
+          onChange={(event) => onSearchQueryChange(event.currentTarget.value)}
+          placeholder="Поиск по задачам…"
+        />
       </div>
 
       <button

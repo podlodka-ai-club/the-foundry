@@ -25,8 +25,31 @@ function matchesFilter(task: UiTask, filter: TaskFilter): boolean {
   return true;
 }
 
+function matchesSearch(task: UiTask, query: string): boolean {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (normalizedQuery === "") return true;
+
+  const issueNumber = String(task.issue_number);
+  const searchableFields = [
+    task.id,
+    task.repo,
+    issueNumber,
+    `#${issueNumber}`,
+    task.issue_title,
+    task.status,
+    task.current_stage,
+    task.branch_name,
+    task.pr_url,
+  ];
+
+  return searchableFields.some((field) =>
+    field !== null && String(field).toLowerCase().includes(normalizedQuery),
+  );
+}
+
 export default function App(): JSX.Element {
   const [filter, setFilter] = useState<TaskFilter>("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
   const tasksQuery = useQuery({
@@ -61,8 +84,8 @@ export default function App(): JSX.Element {
   }, [tasks]);
 
   const filtered = useMemo(
-    () => tasks.filter((t) => matchesFilter(t, filter)),
-    [tasks, filter],
+    () => tasks.filter((t) => matchesFilter(t, filter) && matchesSearch(t, searchQuery)),
+    [tasks, filter, searchQuery],
   );
 
   const isLoading = tasksQuery.isLoading || reposQuery.isLoading;
@@ -72,7 +95,10 @@ export default function App(): JSX.Element {
     <div className="app-shell" style={{ gridTemplateColumns: "232px 1fr" }}>
       <Sidebar repos={repos} tasks={tasks} />
       <main className="main">
-        <Topbar />
+        <Topbar
+          searchQuery={searchQuery}
+          onSearchQueryChange={setSearchQuery}
+        />
         <FilterBar value={filter} onChange={setFilter} counts={counts} />
         <TableHeader />
 
@@ -101,7 +127,7 @@ export default function App(): JSX.Element {
           </div>
         )}
 
-        {!loadError && !isLoading && filtered.length === 0 && (
+        {!loadError && !isLoading && tasks.length === 0 && (
           <div className="state-block">
             <div className="state-icon">
               <Inbox />
@@ -112,6 +138,16 @@ export default function App(): JSX.Element {
               в исходном репозитории и запустите <span className="mono">uv run foundry run</span>,
               чтобы Foundry подобрал её в обработку.
             </p>
+          </div>
+        )}
+
+        {!loadError && !isLoading && tasks.length > 0 && filtered.length === 0 && (
+          <div className="state-block">
+            <div className="state-icon">
+              <Inbox />
+            </div>
+            <h3>Ничего не найдено</h3>
+            <p>Измените поисковый запрос или фильтр статуса.</p>
           </div>
         )}
 
