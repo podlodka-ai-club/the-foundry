@@ -13,6 +13,8 @@ import TableHeader from "./components/TableHeader";
 import TaskRow from "./components/TaskRow";
 
 const REFETCH_MS = 3000;
+const EMPTY_TASKS: UiTask[] = [];
+const EMPTY_REPOS: Awaited<ReturnType<typeof fetchRepos>> = [];
 
 function matchesFilter(task: UiTask, filter: TaskFilter): boolean {
   const s = task.status.toUpperCase();
@@ -39,8 +41,8 @@ export default function App(): JSX.Element {
     refetchInterval: REFETCH_MS,
   });
 
-  const tasks = tasksQuery.data ?? [];
-  const repos = reposQuery.data ?? [];
+  const tasks = tasksQuery.data ?? EMPTY_TASKS;
+  const repos = reposQuery.data ?? EMPTY_REPOS;
 
   const counts = useMemo(() => {
     const out: Record<TaskFilter, number> = {

@@ -3,7 +3,7 @@
 // for the currently selected stage.
 
 import type { JSX } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, Folder, GitBranch, Hash, RotateCcw } from "lucide-react";
 
@@ -61,15 +61,10 @@ export default function TaskDetails({
 }: Props): JSX.Element {
   const defaultStage = useMemo(() => pickDefaultStage(task), [task]);
   const [selectedStage, setSelectedStage] = useState<string>(defaultStage);
-
-  // If the default shifts (e.g. running stage changed), follow it — but keep
-  // user's manual selection if they've already picked something else.
   const [userPicked, setUserPicked] = useState(false);
-  useEffect(() => {
-    if (!userPicked) setSelectedStage(defaultStage);
-  }, [defaultStage, userPicked]);
+  const activeStage = userPicked ? selectedStage : defaultStage;
 
-  const stageEvents = events.filter((e) => e.stage === selectedStage);
+  const stageEvents = events.filter((e) => e.stage === activeStage);
   const issueUrl = `https://github.com/${task.repo}/issues/${task.issue_number}`;
   const queryClient = useQueryClient();
   const resetMutation = useMutation({
@@ -341,7 +336,7 @@ export default function TaskDetails({
             current={task.current_stage}
             size="lg"
             showLabels
-            selectedStage={selectedStage}
+            selectedStage={activeStage}
             onStageClick={(sid) => {
               setSelectedStage(sid);
               setUserPicked(true);
@@ -351,7 +346,7 @@ export default function TaskDetails({
       </div>
 
       {/* Stage detail */}
-      <StageDetailPanel task={task} stageId={selectedStage} events={stageEvents} />
+      <StageDetailPanel task={task} stageId={activeStage} events={stageEvents} />
     </div>
   );
 }

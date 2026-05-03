@@ -1,7 +1,7 @@
 // StageDetailPanel — shows the header and a tabbed view of input / event
 // stream / output for the currently selected stage of an expanded task.
 
-import { useEffect, useState, type JSX } from "react";
+import { useState, type JSX } from "react";
 import { Activity, Check, Clock, X } from "lucide-react";
 
 import type { UiEvent, UiStage, UiTask } from "../api";
@@ -59,6 +59,11 @@ export default function StageDetailPanel({ task, stageId, events }: Props): JSX.
   const isRunning = stage.status === "running";
   const isFailed = stage.status === "failed";
   const isDone = stage.status === "done";
+  const tokensTotal = (stage.tokens_in ?? 0) + (stage.tokens_out ?? 0);
+  const defaultTab: TabId = isAgentStage ? "stream" : "output";
+  const [activeTab, setActiveTab] = useState<TabId>(defaultTab);
+  const visibleTab: TabId =
+    !isAgentStage && activeTab === "stream" ? "output" : activeTab;
 
   if (isPending) {
     return (
@@ -99,16 +104,6 @@ export default function StageDetailPanel({ task, stageId, events }: Props): JSX.
       </div>
     );
   }
-
-  const tokensTotal = (stage.tokens_in ?? 0) + (stage.tokens_out ?? 0);
-
-  const defaultTab: TabId = isAgentStage ? "stream" : "output";
-  const [activeTab, setActiveTab] = useState<TabId>(defaultTab);
-  useEffect(() => {
-    if (!isAgentStage && activeTab === "stream") {
-      setActiveTab("output");
-    }
-  }, [isAgentStage, activeTab]);
 
   return (
     <div className="card" style={{ padding: 0, overflow: "hidden" }}>
@@ -219,13 +214,13 @@ export default function StageDetailPanel({ task, stageId, events }: Props): JSX.
       {/* Tab bar */}
       <div className="stage-tabbar">
         <TabButton
-          active={activeTab === "input"}
+          active={visibleTab === "input"}
           onClick={() => setActiveTab("input")}
           label="Вход"
         />
         {isAgentStage && (
           <TabButton
-            active={activeTab === "stream"}
+            active={visibleTab === "stream"}
             onClick={() => setActiveTab("stream")}
             icon={<Activity className="ico-sm" style={{ color: "var(--accent)" }} />}
             label="Поток событий"
@@ -252,7 +247,7 @@ export default function StageDetailPanel({ task, stageId, events }: Props): JSX.
           />
         )}
         <TabButton
-          active={activeTab === "output"}
+          active={visibleTab === "output"}
           onClick={() => setActiveTab("output")}
           label="Выход"
         />
@@ -260,15 +255,15 @@ export default function StageDetailPanel({ task, stageId, events }: Props): JSX.
 
       {/* Active tab content */}
       <div className="stage-tabpanel">
-        {activeTab === "input" && (
+        {visibleTab === "input" && (
           <div style={{ padding: "12px 16px" }}>
             <StageIO kind="input" data={stage.input ?? null} />
           </div>
         )}
-        {activeTab === "stream" && isAgentStage && (
+        {visibleTab === "stream" && isAgentStage && (
           <EventStream events={events} style="telegram" />
         )}
-        {activeTab === "output" && (
+        {visibleTab === "output" && (
           <div style={{ padding: "12px 16px" }}>
             <StageIO kind="output" data={stage.output ?? null} />
           </div>

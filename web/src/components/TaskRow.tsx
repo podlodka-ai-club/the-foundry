@@ -2,6 +2,7 @@ import type { JSX } from "react";
 import { ChevronRight } from "lucide-react";
 
 import type { UiTask } from "../api";
+import { projectLiveTask } from "../liveTaskProjection";
 import { useTaskStream } from "../useTaskStream";
 import { formatCost, formatDurationMs, formatTokens } from "../utils";
 import StatusChip from "./StatusChip";
@@ -16,9 +17,11 @@ interface Props {
 }
 
 export default function TaskRow({ task, expanded, onToggle }: Props): JSX.Element {
-  const isRunning = task.status.toUpperCase() === "RUNNING";
-  const tokensTotal = (task.tokens_in_total ?? 0) + (task.tokens_out_total ?? 0);
   const stream = useTaskStream(expanded ? task.id : null);
+  const liveTask = projectLiveTask(task, stream.events);
+  const isRunning = liveTask.status.toUpperCase() === "RUNNING";
+  const tokensTotal =
+    (liveTask.tokens_in_total ?? 0) + (liveTask.tokens_out_total ?? 0);
 
   return (
     <div style={{ borderBottom: "1px solid var(--border-soft)" }}>
@@ -54,7 +57,7 @@ export default function TaskRow({ task, expanded, onToggle }: Props): JSX.Elemen
           }}
         />
 
-        <StatusChip status={task.status} />
+        <StatusChip status={liveTask.status} />
 
         <div
           style={{
@@ -97,8 +100,8 @@ export default function TaskRow({ task, expanded, onToggle }: Props): JSX.Elemen
         </div>
 
         <StageStepper
-          stages={task.stages}
-          current={task.current_stage}
+          stages={liveTask.stages}
+          current={liveTask.current_stage}
           size="sm"
           showLabels={false}
         />
@@ -117,7 +120,7 @@ export default function TaskRow({ task, expanded, onToggle }: Props): JSX.Elemen
               style={{ marginRight: 6, width: 5, height: 5 }}
             />
           )}
-          {formatDurationMs(task.duration_ms_total)}
+          {formatDurationMs(liveTask.duration_ms_total)}
         </span>
 
         <span
@@ -131,7 +134,7 @@ export default function TaskRow({ task, expanded, onToggle }: Props): JSX.Elemen
           }}
           className="tabular"
         >
-          <span>{formatCost(task.total_cost_usd)}</span>
+          <span>{formatCost(liveTask.total_cost_usd)}</span>
           <span style={{ color: "var(--fg-3)", fontSize: 10 }}>
             · {formatTokens(tokensTotal)}
           </span>
@@ -140,7 +143,7 @@ export default function TaskRow({ task, expanded, onToggle }: Props): JSX.Elemen
 
       {expanded && (
         <TaskDetails
-          task={task}
+          task={liveTask}
           events={stream.events}
           connected={stream.connected}
           streamError={stream.error}

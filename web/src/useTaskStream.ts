@@ -12,6 +12,10 @@ interface StreamState {
   error: string | null;
 }
 
+interface StreamSnapshot extends StreamState {
+  taskId: number | null;
+}
+
 interface Options {
   enabled?: boolean;
 }
@@ -26,22 +30,24 @@ const SSE_EVENT_KINDS = [
   "agent_result",
 ] as const;
 
+const EMPTY_EVENTS: UiEvent[] = [];
+
 export function useTaskStream(
   taskId: number | null,
   opts: Options = {},
 ): StreamState {
   const { enabled = true } = opts;
-  const [events, setEvents] = useState<UiEvent[]>([]);
-  const [connected, setConnected] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
+  const [snapshot, setSnapshot] = useState<StreamSnapshot>({
+    taskId: null,
+    events: EMPTY_EVENTS,
+    connected: false,
+    error: null,
+  });
   const lastSeqRef = useRef<number>(0);
   const bySeqRef = useRef<Set<number>>(new Set());
 
   useEffect(() => {
     if (taskId === null || !enabled) {
-      setEvents([]);
-      setConnected(false);
-      setError(null);
       lastSeqRef.current = 0;
       bySeqRef.current = new Set();
       return;
@@ -53,18 +59,21 @@ export function useTaskStream(
     // Reset state for new taskId
     lastSeqRef.current = 0;
     bySeqRef.current = new Set();
-    setEvents([]);
-    setError(null);
-    setConnected(false);
 
     const mergeEvent = (ev: UiEvent): void => {
       if (bySeqRef.current.has(ev.seq)) return;
       bySeqRef.current.add(ev.seq);
       if (ev.seq > lastSeqRef.current) lastSeqRef.current = ev.seq;
-      setEvents((prev) => {
-        const next = [...prev, ev];
+      setSnapshot((prev) => {
+        const prevEvents = prev.taskId === taskId ? prev.events : EMPTY_EVENTS;
+        const next = [...prevEvents, ev];
         next.sort((a, b) => a.seq - b.seq);
-        return next;
+        return {
+          taskId,
+          events: next,
+          connected: prev.taskId === taskId ? prev.connected : false,
+          error: prev.taskId === taskId ? prev.error : null,
+        };
       });
     };
 
@@ -75,12 +84,21 @@ export function useTaskStream(
       es = new EventSource(apiUrl(`/api/tasks/${taskId}/events`));
       es.onopen = () => {
         if (cancelled) return;
-        setConnected(true);
-        setError(null);
+        setSnapshot((prev) => ({
+          taskId,
+          events: prev.taskId === taskId ? prev.events : EMPTY_EVENTS,
+          connected: true,
+          error: null,
+        }));
       };
       es.onerror = () => {
         if (cancelled) return;
-        setConnected(false);
+        setSnapshot((prev) => ({
+          taskId,
+          events: prev.taskId === taskId ? prev.events : EMPTY_EVENTS,
+          connected: false,
+          error: prev.taskId === taskId ? prev.error : null,
+        }));
         // Browser auto-reconnects; we don't close here.
       };
       const handleMessage = (e: MessageEvent<string>): void => {
@@ -110,7 +128,12 @@ export function useTaskStream(
       })
       .catch((err: unknown) => {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : String(err));
+        setSnapshot((prev) => ({
+          taskId,
+          events: prev.taskId === taskId ? prev.events : EMPTY_EVENTS,
+          connected: prev.taskId === taskId ? prev.connected : false,
+          error: err instanceof Error ? err.message : String(err),
+        }));
         // Still try SSE — it will replay from SQLite.
         connectSSE();
       });
@@ -118,9 +141,16 @@ export function useTaskStream(
     return () => {
       cancelled = true;
       if (es) es.close();
-      setConnected(false);
     };
   }, [taskId, enabled]);
 
-  return { events, connected, error };
+  if (taskId === null || !enabled || snapshot.taskId !== taskId) {
+    return { events: EMPTY_EVENTS, connected: false, error: null };
+  }
+
+  return {
+    events: snapshot.events,
+    connected: snapshot.connected,
+    error: snapshot.error,
+  };
 }
