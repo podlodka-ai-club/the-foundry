@@ -2,7 +2,7 @@ import type { JSX } from "react";
 import { Inbox, GitBranch, Calendar } from "lucide-react";
 
 import type { RepoCount, UiTask } from "../api";
-import { formatCost } from "../utils";
+import { formatTokens } from "../utils";
 
 interface Props {
   repos: RepoCount[];
@@ -10,11 +10,14 @@ interface Props {
 }
 
 export default function Sidebar({ repos, tasks }: Props): JSX.Element {
-  // Rough "today" spend proxy: sum total_cost_usd over DONE tasks.
+  // Rough "today" spend proxy: sum tokens over DONE tasks.
   // TODO PR6: filter by updated_at within the current calendar day.
-  const todaySpend = tasks
+  const todayTokens = tasks
     .filter((t) => t.status.toUpperCase() === "DONE")
-    .reduce((acc, t) => acc + (t.total_cost_usd ?? 0), 0);
+    .reduce(
+      (acc, t) => acc + (t.tokens_in_total ?? 0) + (t.tokens_out_total ?? 0),
+      0,
+    );
 
   return (
     <aside className="sidebar" style={{ width: 232, flexShrink: 0 }}>
@@ -73,7 +76,7 @@ export default function Sidebar({ repos, tasks }: Props): JSX.Element {
             className="tabular"
             style={{ fontSize: 13, color: "var(--fg-0)", fontWeight: 500 }}
           >
-            {formatCost(todaySpend)}
+            {formatTokens(todayTokens)} ток.
           </span>
         </div>
       </div>

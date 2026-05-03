@@ -18,7 +18,7 @@ export default function Topbar(): JSX.Element {
       setPullResult(`+${fetched}`);
       await queryClient.invalidateQueries({ queryKey: ["tasks"] });
       await queryClient.invalidateQueries({ queryKey: ["repos"] });
-    } catch (e) {
+    } catch {
       setPullResult("err");
     } finally {
       setPulling(false);
