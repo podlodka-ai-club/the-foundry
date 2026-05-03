@@ -33,7 +33,8 @@ def test_init_db_creates_required_tables(tmp_path: Path) -> None:
     assert _table_exists(db, "events")
     assert _table_exists(db, "runs")
     assert _table_exists(db, "run_events")
-    assert _table_exists(db, "orchestrator_state")
+    # orchestrator_state was dropped — runs(status='pending') is the queue.
+    assert not _table_exists(db, "orchestrator_state")
 
 
 def test_init_db_drops_legacy_task_events(tmp_path: Path) -> None:
@@ -69,22 +70,40 @@ def test_init_db_drops_legacy_tasks_table(tmp_path: Path) -> None:
 
 
 def test_events_unique_constraint(tmp_path: Path) -> None:
+    """UNIQUE(trigger_id, external_id) — same dedupe_key reused under
+    a different trigger is allowed; reuse under the same trigger is not."""
     db = tmp_path / "f.sqlite"
     state.init_db(db)
     conn = sqlite3.connect(db)
     try:
         conn.execute(
-            "INSERT INTO events (source, external_id, kind, payload, created_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            ("github_issues", "ext-1", "issue_opened", "{}", "2026-01-01T00:00:00Z"),
+            "INSERT INTO events "
+            "(trigger_id, source, external_id, kind, payload, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                "github_issues.issue_opened",
+                "github_issues",
+                "ext-1",
+                "issue_opened",
+                "{}",
+                "2026-01-01T00:00:00Z",
+            ),
         )
         conn.commit()
 
         with pytest.raises(sqlite3.IntegrityError):
             conn.execute(
-                "INSERT INTO events (source, external_id, kind, payload, created_at) "
-                "VALUES (?, ?, ?, ?, ?)",
-                ("github_issues", "ext-1", "issue_opened", "{}", "2026-01-01T00:00:00Z"),
+                "INSERT INTO events "
+                "(trigger_id, source, external_id, kind, payload, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    "github_issues.issue_opened",
+                    "github_issues",
+                    "ext-1",
+                    "issue_opened",
+                    "{}",
+                    "2026-01-01T00:00:00Z",
+                ),
             )
             conn.commit()
     finally:

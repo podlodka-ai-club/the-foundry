@@ -5,7 +5,6 @@ from pathlib import Path
 from foundry.models import FailureKind, RunStatus
 from foundry.state import (
     create_run,
-    find_running_run,
     finish_run,
     get_run,
     init_db,
@@ -164,26 +163,6 @@ def test_list_runs_filter_by_automation(tmp_path: Path) -> None:
     rs = list_runs(db, automation_id="a")
 
     assert {r.id for r in rs} == {r1}
-
-
-def test_find_running_run_returns_running_only(tmp_path: Path) -> None:
-    db = tmp_path / "f.sqlite"
-    init_db(db)
-    r1 = create_run(db, automation_id="a", event_id=42, session_id="s")
-
-    found = find_running_run(db, event_id=42, automation_id="a")
-    assert found is not None
-    assert found.id == r1
-
-    update_run(db, r1, status=RunStatus.DONE)
-    assert find_running_run(db, event_id=42, automation_id="a") is None
-
-
-def test_find_running_run_no_match_returns_none(tmp_path: Path) -> None:
-    db = tmp_path / "f.sqlite"
-    init_db(db)
-
-    assert find_running_run(db, event_id=99, automation_id="a") is None
 
 
 def test_run_status_pending_round_trips(tmp_path: Path) -> None:

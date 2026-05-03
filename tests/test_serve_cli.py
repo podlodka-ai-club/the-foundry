@@ -78,7 +78,10 @@ async def test_supervise_stops_on_event(tmp_path: Path) -> None:
             await asyncio.sleep(10.0)
 
     stop = asyncio.Event()
-    task = asyncio.create_task(_supervise(_SleepyListener(), db_path, stop))
+    wake = asyncio.Event()
+    task = asyncio.create_task(
+        _supervise(_SleepyListener(), db_path, stop, wake)
+    )
 
     # Let the listener actually start before cancelling.
     await asyncio.sleep(0.05)
@@ -87,71 +90,67 @@ async def test_supervise_stops_on_event(tmp_path: Path) -> None:
         await asyncio.wait_for(task, timeout=0.5)
 
 
-async def test_make_emit_writes_to_db(tmp_path: Path) -> None:
+async def test_make_emit_writes_to_db_via_dispatch(tmp_path: Path) -> None:
     db_path = tmp_path / "ev.sqlite"
     init_db(db_path)
+    wake = asyncio.Event()
 
-    emit = _make_emit("github_issues", db_path)
+    emit = _make_emit(db_path, wake)
 
     event_id = await emit(
-        external_id="owner/repo#1",
-        kind="issue.opened",
+        trigger_id="github_issues.issue_opened",
+        dedupe_key="owner/repo#1",
         payload={"title": "x"},
     )
 
     assert event_id == 1
     with sqlite3.connect(db_path) as conn:
         row = conn.execute(
-            "SELECT source, external_id, kind FROM events WHERE id = 1"
+            "SELECT trigger_id, source, external_id, kind FROM events WHERE id = 1"
         ).fetchone()
-    assert row == ("github_issues", "owner/repo#1", "issue.opened")
+    assert row == (
+        "github_issues.issue_opened",
+        "github_issues",
+        "owner/repo#1",
+        "issue_opened",
+    )
 
 
-async def test_make_emit_hints_orchestrator_on_new_event(tmp_path: Path) -> None:
+async def test_make_emit_sets_wake_on_new_event(tmp_path: Path) -> None:
     db_path = tmp_path / "ev.sqlite"
     init_db(db_path)
+    wake = asyncio.Event()
 
-    hinted: list[int] = []
-
-    class _OrchStub:
-        def hint(self, event_id: int) -> None:
-            hinted.append(event_id)
-
-    emit = _make_emit("github_issues", db_path, _OrchStub())
-
+    emit = _make_emit(db_path, wake)
     event_id = await emit(
-        external_id="owner/repo#10",
-        kind="issue.opened",
+        trigger_id="github_issues.issue_opened",
+        dedupe_key="owner/repo#10",
         payload={"title": "x"},
     )
 
     assert event_id is not None
-    assert hinted == [event_id]
+    assert wake.is_set()
 
 
-async def test_make_emit_does_not_hint_on_dedup(tmp_path: Path) -> None:
+async def test_make_emit_does_not_wake_on_dedup(tmp_path: Path) -> None:
     db_path = tmp_path / "ev.sqlite"
     init_db(db_path)
+    wake = asyncio.Event()
 
-    hinted: list[int] = []
-
-    class _OrchStub:
-        def hint(self, event_id: int) -> None:
-            hinted.append(event_id)
-
-    emit = _make_emit("github_issues", db_path, _OrchStub())
+    emit = _make_emit(db_path, wake)
 
     first = await emit(
-        external_id="owner/repo#11",
-        kind="issue.opened",
+        trigger_id="github_issues.issue_opened",
+        dedupe_key="owner/repo#11",
         payload={"title": "x"},
     )
+    wake.clear()
     second = await emit(
-        external_id="owner/repo#11",
-        kind="issue.opened",
+        trigger_id="github_issues.issue_opened",
+        dedupe_key="owner/repo#11",
         payload={"title": "x"},
     )
 
     assert first is not None
     assert second is None  # dedupe path returns None
-    assert hinted == [first]
+    assert not wake.is_set()

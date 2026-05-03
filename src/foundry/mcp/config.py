@@ -10,16 +10,20 @@ def build_mcp_config(
     db_path: Path,
     run_id: int,
     automation_id: str,
-    skills: tuple[str, ...],
     parent_event_seq: int | None = None,
     extra_env: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    """Compose the per-run MCP server config (mcpServers wire format)."""
+    """Compose the per-run MCP server config (mcpServers wire format).
+
+    No skill whitelist anymore — the server registers everything in
+    `foundry.skills.SKILL_REGISTRY` plus the always-available control-plane
+    tools. Per-automation gating moves into prompts and (later) per-folder
+    slash-commands.
+    """
     env: dict[str, str] = {
         "FOUNDRY_DB_PATH": str(db_path),
         "FOUNDRY_RUN_ID": str(run_id),
         "FOUNDRY_AUTOMATION_ID": automation_id,
-        "FOUNDRY_ENABLED_SKILLS": ",".join(skills),
     }
     if parent_event_seq is not None:
         env["FOUNDRY_PARENT_EVENT_SEQ"] = str(parent_event_seq)

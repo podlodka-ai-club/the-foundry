@@ -5,12 +5,15 @@ import sqlite3
 import time
 import traceback as _traceback
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
 import structlog
 
-from .models import RunEvent
+from .automations.registry import automations_for_trigger
+from .models import RunEvent, RunStatus
+from .session import make_provisional_event, resolve_session_id
 
 log = structlog.get_logger(__name__)
 
@@ -47,6 +50,96 @@ def _maybe_truncate_string(s: str) -> Any:
         "truncated": True,
         "original_size": len(encoded),
     }
+
+
+def dispatch_event(
+    db_path: Path,
+    *,
+    trigger_id: str,
+    dedupe_key: str,
+    payload: dict[str, Any],
+    parent_event_id: int | None = None,
+) -> int | None:
+    """Insert a top-level trigger event and materialize ``PENDING`` runs for
+    every subscribed automation, in a single transaction.
+
+    Listeners call this instead of writing the events table directly. The
+    dispatcher loop only reads ``runs(status='pending')`` — so the act of
+    enqueuing an event and the act of enqueuing work are the same write.
+
+    Dedup happens at the DB layer via ``UNIQUE(trigger_id, external_id)``;
+    a duplicate emit returns ``None`` and inserts no runs.
+    """
+    payload_json = json.dumps(payload, ensure_ascii=False)
+    now = datetime.now(timezone.utc).isoformat()
+    source, _, kind = trigger_id.partition(".")
+
+    automations = automations_for_trigger(trigger_id)
+
+    conn = sqlite3.connect(db_path, isolation_level="IMMEDIATE", timeout=30.0)
+    try:
+        cur = conn.execute(
+            """
+            INSERT INTO events (
+                trigger_id, source, external_id, kind, payload,
+                parent_event_id, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(source, external_id) DO NOTHING
+            """,
+            (
+                trigger_id,
+                source or trigger_id,
+                dedupe_key,
+                kind,
+                payload_json,
+                parent_event_id,
+                now,
+            ),
+        )
+        if cur.rowcount == 0:
+            conn.commit()
+            return None
+        event_id = int(cur.lastrowid)
+
+        provisional = make_provisional_event(
+            trigger_id=trigger_id,
+            dedupe_key=dedupe_key,
+            payload=payload,
+            created_at=now,
+        )
+        # Need event.id for downstream consumers; assign post-insert.
+        provisional.id = event_id
+        for automation in automations:
+            session_id = resolve_session_id(automation, provisional)
+            seq_row = conn.execute(
+                "SELECT COALESCE(MAX(session_seq), 0) + 1 FROM runs WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+            session_seq = int(seq_row[0])
+            conn.execute(
+                """
+                INSERT INTO runs (
+                    automation_id, event_id, session_id, session_seq,
+                    status, started_at, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    automation.id,
+                    event_id,
+                    session_id,
+                    session_seq,
+                    RunStatus.PENDING.value,
+                    now,
+                    now,
+                    now,
+                ),
+            )
+        conn.commit()
+        return event_id
+    finally:
+        conn.close()
 
 
 def record_event(

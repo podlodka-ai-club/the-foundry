@@ -10,12 +10,14 @@ from typing import Any
 import click
 import structlog
 
-from . import state
+from . import state, triggers
+from .automations.registry import AUTOMATIONS
 from .config import ConfigError, Settings, load_settings
+from .events import dispatch_event
 from .listeners import EmitFn, Listener, build_listeners
+from .listeners.cron_rules import DEFAULT_CRON_RULES
 from .models import RunStatus
 from .orchestrator import Orchestrator
-from .state import record_external_event
 
 log = structlog.get_logger()
 
@@ -64,29 +66,25 @@ def runs(status: str | None, limit: int) -> None:
         )
 
 
-def _make_emit(
-    source: str,
-    db_path: Path,
-    orchestrator: Orchestrator | None = None,
-) -> EmitFn:
+def _make_emit(db_path: Path, wake: asyncio.Event) -> EmitFn:
+    """Listener-side emit: dispatch event and wake the orchestrator."""
     async def emit(
         *,
-        external_id: str,
-        kind: str,
+        trigger_id: str,
+        dedupe_key: str,
         payload: dict[str, Any],
         parent_event_id: int | None = None,
     ) -> int | None:
         event_id = await asyncio.to_thread(
-            record_external_event,
+            dispatch_event,
             db_path,
-            source=source,
-            external_id=external_id,
-            kind=kind,
+            trigger_id=trigger_id,
+            dedupe_key=dedupe_key,
             payload=payload,
             parent_event_id=parent_event_id,
         )
-        if orchestrator is not None and event_id is not None:
-            orchestrator.hint(event_id)
+        if event_id is not None:
+            wake.set()
         return event_id
 
     return emit
@@ -96,13 +94,13 @@ async def _supervise(
     listener: Listener,
     db_path: Path,
     stop: asyncio.Event,
-    orchestrator: Orchestrator | None = None,
+    wake: asyncio.Event,
 ) -> None:
     """Run a listener with crash-loop backoff, exiting cleanly when ``stop`` fires."""
     backoff = 1.0
     while not stop.is_set():
         try:
-            emit = _make_emit(listener.source, db_path, orchestrator)
+            emit = _make_emit(db_path, wake)
             log.info("listener.start", listener=listener.id)
             await listener.listen(emit)
             log.info("listener.exited_clean", listener=listener.id)
@@ -123,6 +121,9 @@ async def _supervise(
 
 
 async def _serve_async(settings: Settings) -> None:
+    cron_rule_ids = tuple(rule.id for rule in DEFAULT_CRON_RULES)
+    triggers.validate_registry(AUTOMATIONS, known_cron_rule_ids=cron_rule_ids)
+
     listeners = build_listeners(settings)
     log.info("serve.start", listener_ids=[l.id for l in listeners])
 
@@ -132,6 +133,7 @@ async def _serve_async(settings: Settings) -> None:
 
     loop = asyncio.get_running_loop()
     stop = asyncio.Event()
+    wake = asyncio.Event()
     for sig in (signal.SIGINT, signal.SIGTERM):
         try:
             loop.add_signal_handler(sig, stop.set)
@@ -139,10 +141,10 @@ async def _serve_async(settings: Settings) -> None:
             # Windows / non-main thread — caller will rely on Ctrl+C exception.
             pass
 
-    orchestrator = Orchestrator(settings)
+    orchestrator = Orchestrator(settings, wake=wake)
     tasks = [
         asyncio.create_task(
-            _supervise(l, settings.db_path, stop, orchestrator),
+            _supervise(l, settings.db_path, stop, wake),
             name=f"listener:{l.id}",
         )
         for l in listeners

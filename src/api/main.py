@@ -22,11 +22,10 @@ from typing import Any, AsyncIterator
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from foundry import state
+from foundry import state, triggers
 from foundry.automations.registry import AUTOMATIONS, get_automation
 from foundry.config import ConfigError, load_settings
 from foundry.events import read_events, record_event
-from foundry.listeners._factory import build_listeners
 from foundry.listeners.cron_rules import DEFAULT_CRON_RULES
 from foundry.models import Event, FailureKind, Run, RunEvent, RunStatus
 
@@ -68,15 +67,6 @@ def get_db_path() -> Path:
 
 
 _HEALTH_THRESHOLD_SEC = 300
-_KIND_FOR_SOURCE = {
-    "github_issues": "github",
-    "cron": "cron",
-    "discord": "discord",
-}
-
-
-def _kind_for_source(source: str) -> str:
-    return _KIND_FOR_SOURCE.get(source, source)
 
 
 def _parse_iso(s: str) -> datetime | None:
@@ -117,11 +107,15 @@ def _trigger_for_event(event: Event | None) -> UiRunTrigger | None:
     else:
         text = str(payload.get("text") or payload.get("title") or "")
         author = payload.get("author")
+    short = payload.get("short_name")
+    repo = payload.get("repo")
     return UiRunTrigger(
         source=source,
         external_id=event.external_id,
         text=text,
         author=author if isinstance(author, str) else None,
+        short_name=short if isinstance(short, str) and short else None,
+        repo=repo if isinstance(repo, str) and repo else None,
         kind=event.kind,
     )
 
@@ -141,6 +135,7 @@ def _run_to_ui(run: Run, event: Event | None) -> UiRun:
         failure_kind=run.failure_kind.value if run.failure_kind else None,
         failure_msg=run.failure_msg,
         waiting_reason=run.waiting_reason,
+        outcome=run.outcome,
         agent_session_id=run.agent_session_id,
         trigger=_trigger_for_event(event),
     )
@@ -204,7 +199,6 @@ async def get_automations(db_path: Path = Depends(get_db_path)) -> list[UiAutoma
                 name=a.name,
                 description=a.description,
                 triggers=list(a.triggers),
-                skills=list(a.skills),
                 agent=dict(a.agent),
                 counts=UiAutomationCounts(
                     running=running,
@@ -220,46 +214,32 @@ async def get_automations(db_path: Path = Depends(get_db_path)) -> list[UiAutoma
 # --- Triggers ---------------------------------------------------------------
 
 
-def _known_trigger_ids() -> list[tuple[str, str]]:
-    """Return [(trigger_id, source)] for the listener set we boot."""
-    seen: list[tuple[str, str]] = []
-    try:
-        settings = load_settings()
-        listeners = build_listeners(settings)
-        for l in listeners:
-            seen.append((l.id, l.source))
-    except (ConfigError, Exception):
-        # Fall back to declared listener ids.
-        for src in ("github_issues", "cron", "discord"):
-            seen.append((src, src))
+def _known_trigger_ids() -> list[str]:
+    """Return all canonical trigger ids known to the system, in display order.
 
-    # Add cron rules as separate triggers in addition to the umbrella `cron`.
-    for rule in DEFAULT_CRON_RULES:
-        seen.append((f"cron:{rule.id}", "cron"))
-    # Dedup by id while preserving order.
-    seen_ids: set[str] = set()
-    unique: list[tuple[str, str]] = []
-    for tid, src in seen:
-        if tid in seen_ids:
-            continue
-        seen_ids.add(tid)
-        unique.append((tid, src))
-    return unique
+    Pulls from :data:`foundry.triggers.ALL` plus the configured cron rules.
+    Listener boot state is irrelevant — a trigger exists as long as some
+    automation may subscribe to it.
+    """
+    static = sorted(triggers.ALL)
+    cron = [f"{triggers.CRON_NAMESPACE}{rule.id}" for rule in DEFAULT_CRON_RULES]
+    return static + cron
 
 
 @app.get("/api/triggers", response_model=list[UiTrigger])
 async def get_triggers(db_path: Path = Depends(get_db_path)) -> list[UiTrigger]:
     last_seen_map = (
-        state.last_event_at_by_source(db_path) if db_path.exists() else {}
+        state.last_event_at_by_trigger(db_path) if db_path.exists() else {}
     )
     out: list[UiTrigger] = []
-    for tid, source in _known_trigger_ids():
-        last = last_seen_map.get(source)
+    for tid in _known_trigger_ids():
+        source, _, kind = tid.partition(".")
+        last = last_seen_map.get(tid)
         out.append(
             UiTrigger(
                 id=tid,
-                source=source,
-                kind=_kind_for_source(source),
+                source=source or tid,
+                kind=kind or source or tid,
                 last_seen=last,
                 health=_health(last),
             )

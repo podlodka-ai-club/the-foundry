@@ -15,7 +15,6 @@ def test_build_mcp_config_packs_required_env(tmp_path: Path) -> None:
         db_path=tmp_path / "f.sqlite",
         run_id=7,
         automation_id="dev_task",
-        skills=("open_worktree", "mark_done"),
     )
 
     server = cfg["mcpServers"]["foundry"]
@@ -25,7 +24,8 @@ def test_build_mcp_config_packs_required_env(tmp_path: Path) -> None:
     assert env["FOUNDRY_DB_PATH"] == str(tmp_path / "f.sqlite")
     assert env["FOUNDRY_RUN_ID"] == "7"
     assert env["FOUNDRY_AUTOMATION_ID"] == "dev_task"
-    assert env["FOUNDRY_ENABLED_SKILLS"] == "open_worktree,mark_done"
+    # No skill whitelist anymore — server registers everything in SKILL_REGISTRY.
+    assert "FOUNDRY_ENABLED_SKILLS" not in env
     assert "FOUNDRY_PARENT_EVENT_SEQ" not in env
 
 
@@ -34,7 +34,6 @@ def test_build_mcp_config_includes_parent_event_seq_when_set(tmp_path: Path) -> 
         db_path=tmp_path / "f.sqlite",
         run_id=1,
         automation_id="a",
-        skills=(),
         parent_event_seq=12,
     )
 
@@ -46,7 +45,6 @@ def test_build_mcp_config_merges_extra_env(tmp_path: Path) -> None:
         db_path=tmp_path / "f.sqlite",
         run_id=1,
         automation_id="a",
-        skills=(),
         extra_env={"FOUNDRY_WORKTREE": "/tmp/wt", "FOUNDRY_BRANCH": "br"},
     )
 
@@ -60,7 +58,6 @@ def test_write_mcp_config_round_trips(tmp_path: Path) -> None:
         db_path=tmp_path / "f.sqlite",
         run_id=1,
         automation_id="a",
-        skills=("mark_done",),
     )
     out = mcp_config_path_for_run(tmp_path, 1)
 

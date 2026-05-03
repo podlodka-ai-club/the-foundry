@@ -7,7 +7,7 @@ import pytest
 
 from foundry.listeners.cron import (
     CronListener,
-    _build_external_id,
+    _build_dedupe_key,
     _parse_interval,
 )
 from foundry.listeners.cron_rules import CronRule
@@ -20,15 +20,15 @@ class _RecordingEmit:
     async def __call__(
         self,
         *,
-        external_id: str,
-        kind: str,
+        trigger_id: str,
+        dedupe_key: str,
         payload: dict[str, Any],
         parent_event_id: int | None = None,
     ) -> int | None:
         self.calls.append(
             {
-                "external_id": external_id,
-                "kind": kind,
+                "trigger_id": trigger_id,
+                "dedupe_key": dedupe_key,
                 "payload": payload,
             }
         )
@@ -61,26 +61,26 @@ def test_cron_rule_validates_dedup() -> None:
         CronRule(id="r", schedule="@every 60s", dedup="weekly")
 
 
-def test_build_external_id_tick() -> None:
-    a = _build_external_id("r", "tick", "2026-05-02T10:00:00+00:00")
-    b = _build_external_id("r", "tick", "2026-05-02T10:00:01+00:00")
+def test_build_dedupe_key_tick() -> None:
+    a = _build_dedupe_key("r", "tick", "2026-05-02T10:00:00+00:00")
+    b = _build_dedupe_key("r", "tick", "2026-05-02T10:00:01+00:00")
 
     assert a != b
 
 
-def test_build_external_id_hourly() -> None:
-    same_hour_a = _build_external_id("r", "hourly", "2026-05-02T10:00:00+00:00")
-    same_hour_b = _build_external_id("r", "hourly", "2026-05-02T10:59:30+00:00")
-    diff_hour = _build_external_id("r", "hourly", "2026-05-02T11:00:00+00:00")
+def test_build_dedupe_key_hourly() -> None:
+    same_hour_a = _build_dedupe_key("r", "hourly", "2026-05-02T10:00:00+00:00")
+    same_hour_b = _build_dedupe_key("r", "hourly", "2026-05-02T10:59:30+00:00")
+    diff_hour = _build_dedupe_key("r", "hourly", "2026-05-02T11:00:00+00:00")
 
     assert same_hour_a == same_hour_b
     assert same_hour_a != diff_hour
 
 
-def test_build_external_id_daily() -> None:
-    same_day_a = _build_external_id("r", "daily", "2026-05-02T01:00:00+00:00")
-    same_day_b = _build_external_id("r", "daily", "2026-05-02T23:00:00+00:00")
-    diff_day = _build_external_id("r", "daily", "2026-05-03T00:00:00+00:00")
+def test_build_dedupe_key_daily() -> None:
+    same_day_a = _build_dedupe_key("r", "daily", "2026-05-02T01:00:00+00:00")
+    same_day_b = _build_dedupe_key("r", "daily", "2026-05-02T23:00:00+00:00")
+    diff_day = _build_dedupe_key("r", "daily", "2026-05-03T00:00:00+00:00")
 
     assert same_day_a == same_day_b
     assert same_day_a != diff_day
@@ -117,5 +117,5 @@ async def test_listen_drives_one_rule() -> None:
         cron_mod.asyncio.sleep = original  # type: ignore[assignment]
 
     assert len(emit.calls) >= 1
-    assert emit.calls[0]["kind"] == "cron.tick"
+    assert emit.calls[0]["trigger_id"] == "cron.fast"
     assert emit.calls[0]["payload"]["rule_id"] == "fast"

@@ -22,7 +22,7 @@ def _parse_interval(schedule: str) -> float:
     return float(m.group(1)) * _MULT[m.group(2)]
 
 
-def _build_external_id(rule_id: str, dedup: str, tick_iso: str) -> str:
+def _build_dedupe_key(rule_id: str, dedup: str, tick_iso: str) -> str:
     if dedup == "tick":
         return f"cron-{rule_id}-{tick_iso}"
     if dedup == "hourly":
@@ -33,7 +33,11 @@ def _build_external_id(rule_id: str, dedup: str, tick_iso: str) -> str:
 
 
 class CronListener:
-    """Drives a fixed list of :class:`CronRule` and emits ``cron.tick`` events."""
+    """Drives a fixed list of :class:`CronRule` and emits one event per tick.
+
+    Each rule emits under its own ``cron.<rule_id>`` trigger id — automations
+    subscribe to the rule they care about, no central matcher needed.
+    """
 
     id = "cron"
     source = "cron"
@@ -59,9 +63,8 @@ class CronListener:
 
     async def _emit_tick(self, rule: CronRule, emit: EmitFn) -> None:
         tick_iso = datetime.now(timezone.utc).isoformat()
-        external_id = _build_external_id(rule.id, rule.dedup, tick_iso)
         await emit(
-            external_id=external_id,
-            kind="cron.tick",
-            payload={"rule_id": rule.id, "tick_at": tick_iso},
+            trigger_id=f"cron.{rule.id}",
+            dedupe_key=_build_dedupe_key(rule.id, rule.dedup, tick_iso),
+            payload={"rule_id": rule.id, "tick_at": tick_iso, "short_name": rule.id},
         )

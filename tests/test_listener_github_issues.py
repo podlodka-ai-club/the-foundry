@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
-import pytest
-
+from foundry.events import dispatch_event
 from foundry.listeners.github_issues import GithubIssuesListener
 from foundry.shell import Result
-from foundry.state import init_db, record_external_event
+from foundry.state import init_db
 
 
 def _gh_result(issues: list[dict[str, Any]]) -> Result:
@@ -23,15 +23,15 @@ class _RecordingEmit:
     async def __call__(
         self,
         *,
-        external_id: str,
-        kind: str,
+        trigger_id: str,
+        dedupe_key: str,
         payload: dict[str, Any],
         parent_event_id: int | None = None,
     ) -> int | None:
         self.calls.append(
             {
-                "external_id": external_id,
-                "kind": kind,
+                "trigger_id": trigger_id,
+                "dedupe_key": dedupe_key,
                 "payload": payload,
                 "parent_event_id": parent_event_id,
             }
@@ -68,12 +68,12 @@ async def test_tick_once_emits_each_issue() -> None:
         await listener.tick_once(emit)
 
     assert len(emit.calls) == 2
-    assert emit.calls[0]["kind"] == "issue.opened"
+    assert emit.calls[0]["trigger_id"] == "github_issues.issue_opened"
     assert emit.calls[0]["payload"]["title"] == "first"
     assert emit.calls[1]["payload"]["number"] == 2
 
 
-async def test_tick_once_external_id_format() -> None:
+async def test_tick_once_dedupe_key_format() -> None:
     issues = [
         {
             "number": 42,
@@ -93,7 +93,7 @@ async def test_tick_once_external_id_format() -> None:
     ):
         await listener.tick_once(emit)
 
-    assert emit.calls[0]["external_id"] == "owner/repo#42"
+    assert emit.calls[0]["dedupe_key"] == "owner/repo#42"
 
 
 async def test_tick_handles_empty_list() -> None:
@@ -109,7 +109,8 @@ async def test_tick_handles_empty_list() -> None:
     assert emit.calls == []
 
 
-async def test_tick_dedup_via_emit_with_real_db(tmp_path: Path) -> None:
+async def test_tick_dedup_via_dispatch_event(tmp_path: Path) -> None:
+    """Two consecutive ticks with the same issues must not duplicate events."""
     db_path = tmp_path / "ev.sqlite"
     init_db(db_path)
 
@@ -133,12 +134,11 @@ async def test_tick_dedup_via_emit_with_real_db(tmp_path: Path) -> None:
     ]
     listener = GithubIssuesListener(repo="owner/repo", label="agent-task")
 
-    async def emit(*, external_id, kind, payload, parent_event_id=None):
-        return record_external_event(
+    async def emit(*, trigger_id, dedupe_key, payload, parent_event_id=None):
+        return dispatch_event(
             db_path,
-            source=listener.source,
-            external_id=external_id,
-            kind=kind,
+            trigger_id=trigger_id,
+            dedupe_key=dedupe_key,
             payload=payload,
             parent_event_id=parent_event_id,
         )
@@ -149,8 +149,6 @@ async def test_tick_dedup_via_emit_with_real_db(tmp_path: Path) -> None:
     ):
         await listener.tick_once(emit)
         await listener.tick_once(emit)
-
-    import sqlite3
 
     with sqlite3.connect(db_path) as conn:
         count = conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]

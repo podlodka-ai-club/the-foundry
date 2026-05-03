@@ -23,7 +23,6 @@ class UiAutomation(BaseModel):
     name: str
     description: str
     triggers: list[str]
-    skills: list[str]
     agent: dict[str, Any]
     counts: UiAutomationCounts
 
@@ -41,6 +40,8 @@ class UiRunTrigger(BaseModel):
     external_id: str
     text: str
     author: str | None = None
+    short_name: str | None = None
+    repo: str | None = None
     kind: str
 
 
@@ -60,6 +61,7 @@ class UiRun(BaseModel):
     failure_kind: str | None = None
     failure_msg: str | None = None
     waiting_reason: str | None = None
+    outcome: str | None = None
     agent_session_id: str | None = None
     trigger: UiRunTrigger | None = None
 

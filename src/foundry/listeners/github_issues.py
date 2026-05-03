@@ -6,17 +6,15 @@ from typing import Any
 
 import structlog
 
-from .. import shell
+from .. import shell, triggers
 from .base import EmitFn
 
 log = structlog.get_logger(__name__)
 
 
 class GithubIssuesListener:
-    """Polls GitHub issues by label and emits ``issue.opened`` events.
-
-    Dedup is handled at the DB layer via ``record_external_event`` —
-    this listener emits freely on every tick.
+    """Polls GitHub issues by label and emits one ``issue_opened`` event per
+    open issue per tick. Dedup happens at the DB layer.
     """
 
     id = "github_issues"
@@ -42,7 +40,6 @@ class GithubIssuesListener:
 
     async def _emit_one(self, emit: EmitFn, issue: dict[str, Any]) -> None:
         number = int(issue["number"])
-        external_id = f"{self.repo}#{number}"
         labels = [label["name"] for label in issue.get("labels") or []]
         payload = {
             "repo": self.repo,
@@ -52,10 +49,11 @@ class GithubIssuesListener:
             "labels": labels,
             "created_at": issue.get("createdAt"),
             "updated_at": issue.get("updatedAt"),
+            "short_name": f"#{number}",
         }
         await emit(
-            external_id=external_id,
-            kind="issue.opened",
+            trigger_id=triggers.GITHUB_ISSUE_OPENED,
+            dedupe_key=f"{self.repo}#{number}",
             payload=payload,
         )
 

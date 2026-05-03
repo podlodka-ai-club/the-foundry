@@ -9,6 +9,7 @@ __pycache__/
 .env
 data/
 worktrees/
+logs/
 
 # --- Frontend ---
 web/node_modules

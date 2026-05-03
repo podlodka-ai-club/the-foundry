@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from api.main import app, get_db_path
 from foundry import state
-from foundry.events import record_event
+from foundry.events import dispatch_event, record_event
 from foundry.models import FailureKind, RunStatus
 
 
@@ -54,14 +54,18 @@ def test_get_automations_returns_list(client: TestClient) -> None:
 
 
 def test_get_automations_counts_match_db(client: TestClient, db_path: Path) -> None:
-    # Arrange — one running run for dev_task
-    event_id = state.record_external_event(
-        db_path,
-        source="github_issues",
-        external_id="repo#1",
-        kind="issue.opened",
-        payload={"title": "demo", "number": 1},
-    )
+    # Arrange — one running run for dev_task. We bypass dispatch (no PENDING
+    # auto-creation) by using `automations_for_trigger=[]` via a direct
+    # event insert through dispatch_event with no subscribers.
+    from unittest.mock import patch as _patch
+
+    with _patch("foundry.events.automations_for_trigger", return_value=[]):
+        event_id = dispatch_event(
+            db_path,
+            trigger_id="github_issues.issue_opened",
+            dedupe_key="repo#1",
+            payload={"title": "demo", "number": 1},
+        )
     assert event_id is not None
     state.create_run(
         db_path,
@@ -102,39 +106,54 @@ def test_get_triggers_returns_list_with_known(client: TestClient) -> None:
 def test_get_triggers_health_null_when_no_events(client: TestClient) -> None:
     response = client.get("/api/triggers")
     assert response.status_code == 200
-    by_source = {t["source"]: t for t in response.json()}
-    assert by_source["github_issues"]["last_seen"] is None
-    assert by_source["github_issues"]["health"] is None
+    by_id = {t["id"]: t for t in response.json()}
+    assert by_id["github_issues.issue_opened"]["last_seen"] is None
+    assert by_id["github_issues.issue_opened"]["health"] is None
 
 
 def test_get_triggers_health_ok_after_recent_event(
     client: TestClient, db_path: Path
 ) -> None:
-    state.record_external_event(
-        db_path,
-        source="github_issues",
-        external_id="repo#42",
-        kind="issue.opened",
-        payload={"title": "x"},
-    )
+    from unittest.mock import patch as _patch
+
+    with _patch("foundry.events.automations_for_trigger", return_value=[]):
+        dispatch_event(
+            db_path,
+            trigger_id="github_issues.issue_opened",
+            dedupe_key="repo#42",
+            payload={"title": "x"},
+        )
 
     response = client.get("/api/triggers")
-    by_source = {t["source"]: t for t in response.json()}
-    assert by_source["github_issues"]["last_seen"] is not None
-    assert by_source["github_issues"]["health"] == "ok"
+    by_id = {t["id"]: t for t in response.json()}
+    assert by_id["github_issues.issue_opened"]["last_seen"] is not None
+    assert by_id["github_issues.issue_opened"]["health"] == "ok"
 
 
 # --- Runs list --------------------------------------------------------------
 
 
-def _seed_event(db_path: Path, *, source: str = "github_issues", external_id: str = "repo#1") -> int:
-    eid = state.record_external_event(
-        db_path,
-        source=source,
-        external_id=external_id,
-        kind="issue.opened",
-        payload={"title": f"demo-{external_id}", "number": 1},
-    )
+def _seed_event(
+    db_path: Path,
+    *,
+    trigger_id: str = "github_issues.issue_opened",
+    external_id: str = "repo#1",
+) -> int:
+    """Insert a top-level event without auto-creating PENDING runs.
+
+    Tests that need a free-standing ``event_id`` to attach manually-created
+    runs to should use this — patching ``automations_for_trigger`` to ``[]``
+    so dispatch only writes the events row.
+    """
+    from unittest.mock import patch as _patch
+
+    with _patch("foundry.events.automations_for_trigger", return_value=[]):
+        eid = dispatch_event(
+            db_path,
+            trigger_id=trigger_id,
+            dedupe_key=external_id,
+            payload={"title": f"demo-{external_id}", "number": 1},
+        )
     assert eid is not None
     return eid
 

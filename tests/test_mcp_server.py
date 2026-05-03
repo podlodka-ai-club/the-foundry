@@ -1,66 +1,36 @@
+"""Sanity checks for the trimmed MCP server.
+
+Control-plane tools (mark_done / mark_failed / mark_milestone) and the
+``compact_context`` stub were removed. Domain helpers (run_tests,
+react_emoji, open_worktree, open_pr_worktree) were dropped along with
+their skill files. The server now surfaces only :data:`SKILL_REGISTRY` +
+``call_subagent``.
+"""
+
 from __future__ import annotations
 
-from pathlib import Path
-
-import pytest
-
-from foundry.events import read_events
-from foundry.mcp.server import (
-    compact_context_impl,
-    mark_milestone_impl,
-)
-from foundry.models import RunStatus
-from foundry.state import create_run, init_db
+from foundry.mcp import server as mcp_server
 
 
-@pytest.fixture
-def run_ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, int]:
-    db = tmp_path / "f.sqlite"
-    init_db(db)
-    run_id = create_run(
-        db,
-        automation_id="dev_task",
-        event_id=1,
-        session_id="s",
-        status=RunStatus.RUNNING,
-    )
-    monkeypatch.setenv("FOUNDRY_DB_PATH", str(db))
-    monkeypatch.setenv("FOUNDRY_RUN_ID", str(run_id))
-    monkeypatch.delenv("FOUNDRY_PARENT_EVENT_SEQ", raising=False)
-    return db, run_id
+def test_registered_set_equals_skill_registry() -> None:
+    """``_REGISTERED`` only tracks dynamic registrations from
+    :data:`SKILL_REGISTRY`. ``call_subagent`` lives outside that set
+    (it's bound directly via ``@mcp.tool()`` at import time)."""
+    from foundry.skills import SKILL_REGISTRY
+
+    assert set(SKILL_REGISTRY) == mcp_server._REGISTERED
 
 
-def test_mark_milestone_writes_event(run_ctx: tuple[Path, int]) -> None:
-    db, run_id = run_ctx
-
-    result = mark_milestone_impl("step 1")
-
-    assert result["ok"] is True
-    assert isinstance(result["seq"], int)
-
-    events = read_events(db, run_id=run_id)
-    assert len(events) == 1
-    ev = events[0]
-    assert ev.stage == "milestone"
-    assert ev.kind == "mark"
-    assert ev.payload == {"label": "step 1"}
-    assert ev.parent_event_seq is None
-
-
-def test_mark_milestone_uses_parent_event_seq_from_env(
-    run_ctx: tuple[Path, int], monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    db, run_id = run_ctx
-    monkeypatch.setenv("FOUNDRY_PARENT_EVENT_SEQ", "42")
-
-    mark_milestone_impl("step 2")
-
-    events = read_events(db, run_id=run_id)
-    assert len(events) == 1
-    assert events[0].parent_event_seq == 42
-
-
-def test_compact_context_returns_not_implemented() -> None:
-    result = compact_context_impl()
-
-    assert result == {"ok": False, "error": "not implemented yet"}
+def test_registered_does_not_include_dropped_tools() -> None:
+    """No mark_done/mark_failed/mark_milestone/compact_context anymore."""
+    dropped = {
+        "mark_done",
+        "mark_failed",
+        "mark_milestone",
+        "compact_context",
+        "open_worktree",
+        "open_pr_worktree",
+        "react_emoji",
+        "run_tests",
+    }
+    assert dropped.isdisjoint(mcp_server._REGISTERED)

@@ -1,3 +1,11 @@
+"""Per-run MCP server.
+
+Exposes :data:`foundry.skills.SKILL_REGISTRY` plus ``call_subagent`` over
+FastMCP. Run-level signalling (``mark_done`` / ``mark_failed``) is **not**
+in MCP anymore — the orchestrator parses a ``STATUS:`` marker out of the
+agent's final reply (see :mod:`foundry.status_marker`).
+"""
+
 from __future__ import annotations
 
 import functools
@@ -7,7 +15,6 @@ from typing import Any, Callable
 
 from fastmcp import FastMCP
 
-from foundry.events import record_event
 from foundry.skills import SKILL_REGISTRY
 
 mcp = FastMCP("foundry")
@@ -30,24 +37,6 @@ def _ctx() -> tuple[Path, int, int | None]:
     return db_path, run_id, parent
 
 
-def mark_milestone_impl(label: str) -> dict[str, Any]:
-    """Logic for the `mark_milestone` tool, exposed for unit tests."""
-    db_path, run_id, parent = _ctx()
-    seq = record_event(
-        db_path,
-        run_id=run_id,
-        stage="milestone",
-        kind="mark",
-        payload={"label": label},
-        parent_event_seq=parent,
-    )
-    return {"ok": True, "seq": seq}
-
-
-def compact_context_impl() -> dict[str, Any]:
-    return {"ok": False, "error": "not implemented yet"}
-
-
 def call_subagent_impl(name: str, prompt: str, id: str) -> dict[str, Any]:
     # Lazy import — `runner` pulls in agent stack which is heavier than the
     # MCP-server skeleton needs at import time.
@@ -57,26 +46,9 @@ def call_subagent_impl(name: str, prompt: str, id: str) -> dict[str, Any]:
 
 
 @mcp.tool()
-def mark_milestone(label: str) -> dict[str, Any]:
-    """Mark a milestone in the run's event tree."""
-    return mark_milestone_impl(label)
-
-
-@mcp.tool()
-def compact_context() -> dict[str, Any]:
-    """Reserved for future context compaction; not implemented yet."""
-    return compact_context_impl()
-
-
-@mcp.tool()
 def call_subagent(name: str, prompt: str, id: str) -> dict[str, Any]:
     """Recursively invoke a registered sub-agent."""
     return call_subagent_impl(name=name, prompt=prompt, id=id)
-
-
-def _enabled_skills() -> set[str]:
-    raw = os.environ.get("FOUNDRY_ENABLED_SKILLS", "")
-    return {s.strip() for s in raw.split(",") if s.strip()}
 
 
 def _make_skill_wrapper(skill_id: str, impl: Callable[..., dict[str, Any]]):
@@ -91,22 +63,17 @@ def _make_skill_wrapper(skill_id: str, impl: Callable[..., dict[str, Any]]):
     return wrapper
 
 
-def _register_enabled_skills() -> None:
-    """Register skills listed in FOUNDRY_ENABLED_SKILLS as MCP tools.
-
-    Skills not in the env list stay disabled. Re-entrant safe via
-    `_REGISTERED` guard — calling twice is a no-op.
-    """
-    enabled = _enabled_skills()
+def _register_all_skills() -> None:
+    """Register every skill in :data:`SKILL_REGISTRY` as an MCP tool."""
     for skill_id, impl in SKILL_REGISTRY.items():
-        if skill_id not in enabled or skill_id in _REGISTERED:
+        if skill_id in _REGISTERED:
             continue
         wrapper = _make_skill_wrapper(skill_id, impl)
         mcp.tool(name=skill_id)(wrapper)
         _REGISTERED.add(skill_id)
 
 
-_register_enabled_skills()
+_register_all_skills()
 
 
 def main() -> None:

@@ -5,12 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from foundry.state import (
-    get_event,
-    init_db,
-    read_events_after,
-    record_external_event,
-)
+from foundry.events import dispatch_event
+from foundry.state import get_event, init_db
 
 
 @pytest.fixture
@@ -20,12 +16,13 @@ def db_path(tmp_path: Path) -> Path:
     return path
 
 
-def test_record_external_event_inserts(db_path: Path) -> None:
-    event_id = record_external_event(
+def test_dispatch_event_inserts_with_split_source_kind(db_path: Path) -> None:
+    """``trigger_id`` is split on the first dot into ``source``/``kind`` so
+    legacy display code keeps working."""
+    event_id = dispatch_event(
         db_path,
-        source="github_issues",
-        external_id="owner/repo#1",
-        kind="issue.opened",
+        trigger_id="github_issues.issue_opened",
+        dedupe_key="owner/repo#1",
         payload={"title": "hello"},
     )
 
@@ -34,23 +31,21 @@ def test_record_external_event_inserts(db_path: Path) -> None:
     assert fetched is not None
     assert fetched.source == "github_issues"
     assert fetched.external_id == "owner/repo#1"
-    assert fetched.kind == "issue.opened"
+    assert fetched.kind == "issue_opened"
     assert fetched.payload == {"title": "hello"}
 
 
-def test_record_external_event_dedupes(db_path: Path) -> None:
-    first = record_external_event(
+def test_dispatch_event_dedupes(db_path: Path) -> None:
+    first = dispatch_event(
         db_path,
-        source="github_issues",
-        external_id="owner/repo#1",
-        kind="issue.opened",
+        trigger_id="github_issues.issue_opened",
+        dedupe_key="owner/repo#1",
         payload={"title": "hello"},
     )
-    second = record_external_event(
+    second = dispatch_event(
         db_path,
-        source="github_issues",
-        external_id="owner/repo#1",
-        kind="issue.opened",
+        trigger_id="github_issues.issue_opened",
+        dedupe_key="owner/repo#1",
         payload={"title": "hello"},
     )
 
@@ -62,20 +57,20 @@ def test_record_external_event_dedupes(db_path: Path) -> None:
     assert count == 1
 
 
-def test_record_external_event_different_sources_independent(db_path: Path) -> None:
-    a = record_external_event(
+def test_dispatch_event_different_triggers_independent(db_path: Path) -> None:
+    """Same ``dedupe_key`` under different triggers does NOT collapse — the
+    UNIQUE constraint is over ``(trigger_id, external_id)``."""
+    a = dispatch_event(
         db_path,
-        source="github_issues",
-        external_id="1",
-        kind="issue.opened",
+        trigger_id="github_issues.issue_opened",
+        dedupe_key="1",
         payload={},
     )
-    b = record_external_event(
+    b = dispatch_event(
         db_path,
-        source="cron",
-        external_id="1",
-        kind="cron.tick",
-        payload={},
+        trigger_id="cron.nightly",
+        dedupe_key="1",
+        payload={"rule_id": "nightly"},
     )
 
     assert a is not None
@@ -83,49 +78,18 @@ def test_record_external_event_different_sources_independent(db_path: Path) -> N
     assert a != b
 
 
-def test_record_external_event_serializes_payload(db_path: Path) -> None:
+def test_dispatch_event_serializes_payload(db_path: Path) -> None:
     payload = {"a": 1, "b": [2, 3], "nested": {"x": "y"}}
-    event_id = record_external_event(
+    event_id = dispatch_event(
         db_path,
-        source="github_issues",
-        external_id="owner/repo#42",
-        kind="issue.opened",
+        trigger_id="github_issues.issue_opened",
+        dedupe_key="owner/repo#42",
         payload=payload,
     )
 
     fetched = get_event(db_path, event_id)
     assert fetched is not None
     assert fetched.payload == payload
-
-
-def test_read_events_after_filters_and_limits(db_path: Path) -> None:
-    for i in range(1, 6):
-        record_external_event(
-            db_path,
-            source="github_issues",
-            external_id=f"r#{i}",
-            kind="issue.opened",
-            payload={},
-        )
-
-    events = read_events_after(db_path, after_id=2, limit=2)
-
-    assert [e.id for e in events] == [3, 4]
-
-
-def test_read_events_after_default_returns_all(db_path: Path) -> None:
-    for i in range(1, 4):
-        record_external_event(
-            db_path,
-            source="github_issues",
-            external_id=f"r#{i}",
-            kind="issue.opened",
-            payload={},
-        )
-
-    events = read_events_after(db_path)
-
-    assert [e.id for e in events] == [1, 2, 3]
 
 
 def test_get_event_missing_returns_none(db_path: Path) -> None:
