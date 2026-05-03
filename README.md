@@ -220,12 +220,17 @@ npm run build                            # tsc -b && vite build
 
 ## Документация
 
+**Точка входа:**
+
+- [docs/architecture/overview.md](docs/architecture/overview.md) — mermaid-схемы: поток данных listener → run → агент, граф зависимостей модулей, FSM run-а, таблица `workspace`-режимов.
+- [docs/architecture/extending.md](docs/architecture/extending.md) — пошагово: как добавить новый **listener** и новую **automation** (включая выбор `workspace`, `session_key`, тесты).
 - [CLAUDE.md](CLAUDE.md) — карта проекта для агентов и людей: архитектура, конвенции, правила.
-- [DEBUG.md](DEBUG.md) — verified runbook: как поднимать REPL, мокать пайплайн, инспектить SQLite. Каждая команда здесь была реально выполнена.
-- [docs/architecture/skeleton.md](docs/architecture/skeleton.md) — что сделано в скелете.
-- [docs/architecture/draft.md](docs/architecture/draft.md) — исходный архитектурный набросок.
-- [docs/architecture/agent-protocol.md](docs/architecture/agent-protocol.md) — контракт между orchestrator'ом и coding-агентами.
-- [docs/specs/observability-ui.md](docs/specs/observability-ui.md), [docs/specs/observability-ui-plan.md](docs/specs/observability-ui-plan.md) — спецификация observability/UI слоя.
-- [IDEAS.md](IDEAS.md) — свалка будущих направлений (как есть, без додумывания).
-- [design_handoff_foundry_observability/](design_handoff_foundry_observability/) — hi-fi дизайн-референс UI.
-foundry-bot: task #1 — subagent:echo
+- [DEBUG.md](DEBUG.md) — verified runbook: REPL, eval через `uv run python -c`, инспекция SQLite.
+
+**Журналы рефакторингов и спецификации:**
+
+- [docs/architecture/automations-roadmap.md](docs/architecture/automations-roadmap.md) — исторический roadmap C1–C6.
+- [docs/architecture/simplify-2026-05.md](docs/architecture/simplify-2026-05.md) — последняя упрощающая итерация (kill `AgentStage`, единый `workspace`, выделение `runner.py`).
+- [docs/architecture/pr-review-automation.md](docs/architecture/pr-review-automation.md), [docs/architecture/telegram-listener.md](docs/architecture/telegram-listener.md) — заметки по конкретным автоматизациям.
+- [docs/architecture/agent-protocol.md](docs/architecture/agent-protocol.md) — исторический документ (≤ C2). Текущий контракт агента — в [src/foundry/agents/CLAUDE.md](src/foundry/agents/CLAUDE.md).
+- [IDEAS.md](IDEAS.md) — свалка будущих направлений.
