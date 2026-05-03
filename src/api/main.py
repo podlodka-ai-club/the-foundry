@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException
 from foundry import state
 from foundry.config import ConfigError, load_settings
 from foundry.events import read_events
+from foundry.models import Stage, TaskStatus
 
 from .projections import UiTask, project_task
 from .sse import router as sse_router
@@ -51,6 +52,27 @@ async def get_task(task_id: int) -> UiTask:
     task = state.get_task(settings.db_path, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+    events = read_events(settings.db_path, task_id)
+    return project_task(task, events, include_events=True, events_limit=200)
+
+
+@app.post("/api/tasks/{task_id}/reset", response_model=UiTask)
+async def reset_task(task_id: int) -> UiTask:
+    """Reset a task to pending/fetch so the worker can retry it."""
+    settings = _settings_or_raise()
+    state.init_db(settings.db_path)
+
+    task = state.get_task(settings.db_path, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+    if task.status == TaskStatus.RUNNING:
+        raise HTTPException(status_code=409, detail="Running tasks cannot be reset")
+
+    task.status = TaskStatus.PENDING
+    task.current_stage = Stage.FETCH
+    task.pr_url = None
+    task = state.upsert_task(settings.db_path, task)
+
     events = read_events(settings.db_path, task_id)
     return project_task(task, events, include_events=True, events_limit=200)
 

@@ -4,7 +4,7 @@
 
 Проект сделан в рамках **Hacker Sprint #1: Фабрика фичей** ([Notion](https://www.notion.so/Hacker-Sprint-1-33f2db4c860e8064a657e199b4578f66?source=copy_link)).
 
-> **TL;DR.** Поставь зависимости (`uv sync`, `cd web && npm install`), скопируй `.env.example` → `.env`, заполни `SOURCE_REPO`/`TARGET_REPO`, и запускай три процесса в трёх терминалах: **listener** (`uv run foundry run`), **API** (`uv run uvicorn api.main:app --reload`), **UI** (`cd web && npm run dev`). По умолчанию listener гоняет stub-агента (оффлайн); чтобы получить реальный код от LLM, поставь `claude` CLI и переключи `CODING_AGENT=claude_cli`.
+> **TL;DR.** Поставь зависимости (`uv sync`, `cd web && npm install`), скопируй `.env.example` → `.env`, заполни `SOURCE_REPO`/`TARGET_REPO`, и запускай три процесса в трёх терминалах: **listener** (`uv run foundry run`), **API** (`uv run uvicorn api.main:app --reload`), **UI** (`cd web && npm run dev`). Или одной командой в Docker: `docker compose up --build`. По умолчанию listener гоняет stub-агента (оффлайн); чтобы получить реальный код от LLM, поставь `claude` CLI и переключи `CODING_AGENT=claude_cli`.
 
 ---
 
@@ -14,6 +14,7 @@
 - [Подготовка окружения](#подготовка-окружения)
 - [Конфигурация (`.env`)](#конфигурация-env)
 - [Запуск: три раннера](#запуск-три-раннера)
+- [Docker-запуск](#docker-запуск)
 - [Smoke-прогон](#smoke-прогон)
 - [Тесты](#тесты)
 - [Документация](#документация)
@@ -180,6 +181,49 @@ npm run dev                              # http://localhost:5173
 ```
 
 Vite-прокси перебрасывает `/api` → `http://localhost:8000` — пока порт API не двигаешь, ничего больше править не нужно. Тёмная тема — по умолчанию, светлая включается через системное `prefers-color-scheme` или вручную: `<html data-theme="light">`.
+
+## Docker-запуск
+
+Docker Compose поднимает сразу три процесса:
+
+| Сервис | Что запускает | Порт |
+| --- | --- | --- |
+| `api` | FastAPI backend (`uvicorn api.main:app`) | `8000` |
+| `worker` | listener / pipeline (`foundry run`) | — |
+| `web` | Vite UI с прокси на `api:8000` | `5173` |
+
+Минимальный запуск:
+
+```bash
+cp .env.example .env
+$EDITOR .env                              # заполнить SOURCE_REPO / TARGET_REPO
+docker compose up --build
+```
+
+После старта UI доступен на http://localhost:5173, API — на http://localhost:8000. SQLite и worktree'ы остаются на хосте в `./data` и `./worktrees`, чтобы их можно было смотреть обычными локальными инструментами.
+
+Compose монтирует локальный `gh` auth из `${HOME}/.config/gh`. Для git-коммитов внутри контейнера по умолчанию используется `Foundry Bot <foundry@example.local>`; при желании переопредели `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME`, `GIT_COMMITTER_EMAIL` в `.env`. Если хочешь вместо stub включить реальный coding backend, выставь в `.env` нужный `CODING_AGENT` и раскомментируй соответствующий auth-volume в `docker-compose.yml`:
+
+```yaml
+# Claude Code
+- ${HOME}/.claude:/root/.claude
+
+# Codex CLI
+- ${HOME}/.codex:/root/.codex
+
+# OpenCode
+- ${HOME}/.local/share/opencode:/root/.local/share/opencode
+```
+
+Образ backend'а включает Node 24 и умеет опционально ставить CLI-агенты на этапе build. Разово:
+
+```bash
+INSTALL_CLAUDE_CLI=true docker compose build api worker
+INSTALL_CODEX_CLI=true docker compose build api worker
+INSTALL_OPENCODE_CLI=true docker compose build api worker
+```
+
+Для постоянного режима можно положить нужный флаг в `.env`, чтобы `docker compose up --build` тоже собирал образ с этим CLI. Если CLI уже лежит в собственном кастомном образе или используется только `CODING_AGENT=stub`, эти флаги не нужны.
 
 ---
 

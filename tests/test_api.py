@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from api.main import app
 from foundry import state
 from foundry.events import record_event
-from foundry.models import Task, TaskStatus
+from foundry.models import Stage, Task, TaskStatus
 
 
 @pytest.fixture
@@ -118,6 +118,55 @@ def test_get_task_detail_404(client: TestClient, _setup_env: Path) -> None:
 
     # Assert
     assert response.status_code == 404
+
+
+def test_reset_task_sets_pending_fetch(client: TestClient, _setup_env: Path) -> None:
+    # Arrange
+    db = _setup_env
+    task = state.upsert_task(
+        db,
+        Task(
+            repo="owner/repo",
+            issue_number=9,
+            issue_title="Failed task",
+            issue_body="Body",
+            status=TaskStatus.FAILED,
+            current_stage=Stage.FAILED,
+            pr_url="https://example.test/pr/1",
+        ),
+    )
+
+    # Act
+    response = client.post(f"/api/tasks/{task.id}/reset")
+
+    # Assert
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "pending"
+    assert payload["current_stage"] == "fetch"
+    assert payload["pr_url"] is None
+
+
+def test_reset_task_rejects_running(client: TestClient, _setup_env: Path) -> None:
+    # Arrange
+    db = _setup_env
+    task = state.upsert_task(
+        db,
+        Task(
+            repo="owner/repo",
+            issue_number=10,
+            issue_title="Running task",
+            issue_body="Body",
+            status=TaskStatus.RUNNING,
+            current_stage=Stage.IMPLEMENT,
+        ),
+    )
+
+    # Act
+    response = client.post(f"/api/tasks/{task.id}/reset")
+
+    # Assert
+    assert response.status_code == 409
 
 
 def test_get_repos_counts(client: TestClient, _setup_env: Path) -> None:

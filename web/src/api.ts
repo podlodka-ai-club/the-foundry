@@ -87,3 +87,11 @@ export function fetchTask(id: number): Promise<UiTask> {
 export function fetchRepos(): Promise<RepoCount[]> {
   return getJson<RepoCount[]>("/api/repos");
 }
+
+export async function resetTask(id: number): Promise<UiTask> {
+  const res = await fetch(apiUrl(`/api/tasks/${id}/reset`), { method: "POST" });
+  if (!res.ok) {
+    throw new Error(`reset task ${id} failed: ${res.status} ${res.statusText}`);
+  }
+  return (await res.json()) as UiTask;
+}

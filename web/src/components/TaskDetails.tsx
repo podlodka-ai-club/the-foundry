@@ -4,8 +4,10 @@
 
 import type { JSX } from "react";
 import { useEffect, useMemo, useState } from "react";
-import { ExternalLink, Folder, GitBranch, Hash } from "lucide-react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { ExternalLink, Folder, GitBranch, Hash, RotateCcw } from "lucide-react";
 
+import { resetTask } from "../api";
 import type { UiEvent, UiTask } from "../api";
 import { STAGES } from "../stages";
 import StageDetailPanel from "./StageDetailPanel";
@@ -55,6 +57,23 @@ export default function TaskDetails({
 
   const stageEvents = events.filter((e) => e.stage === selectedStage);
   const issueUrl = `https://github.com/${task.repo}/issues/${task.issue_number}`;
+  const queryClient = useQueryClient();
+  const resetMutation = useMutation({
+    mutationFn: () => resetTask(task.id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["tasks"] });
+      void queryClient.invalidateQueries({ queryKey: ["repos"] });
+    },
+  });
+  const canReset = task.status.toUpperCase() !== "RUNNING";
+
+  const onReset = (): void => {
+    if (!canReset || resetMutation.isPending) return;
+    const ok = window.confirm(
+      `Сбросить задачу #${task.issue_number} в pending/fetch для повторного запуска?`,
+    );
+    if (ok) resetMutation.mutate();
+  };
 
   return (
     <div
@@ -178,7 +197,46 @@ export default function TaskDetails({
               Поток событий: {streamError}
             </div>
           )}
+          {resetMutation.error && (
+            <div
+              style={{
+                fontSize: 11,
+                color: "var(--danger)",
+              }}
+            >
+              Сброс не удался:{" "}
+              {resetMutation.error instanceof Error
+                ? resetMutation.error.message
+                : String(resetMutation.error)}
+            </div>
+          )}
         </div>
+        <button
+          type="button"
+          className="topbar-btn"
+          onClick={(e) => {
+            e.stopPropagation();
+            onReset();
+          }}
+          disabled={!canReset || resetMutation.isPending}
+          title={
+            canReset
+              ? "Сбросить задачу в pending/fetch"
+              : "Running-задачу нельзя сбросить"
+          }
+          style={{
+            opacity: !canReset || resetMutation.isPending ? 0.55 : 1,
+            cursor: !canReset || resetMutation.isPending ? "not-allowed" : "pointer",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {resetMutation.isPending ? (
+            <span className="spinner" />
+          ) : (
+            <RotateCcw className="ico-sm" />
+          )}
+          Reset
+        </button>
       </div>
 
       {/* Stage timeline */}

@@ -43,6 +43,7 @@ def create_worktree(
     if worktree_path.exists():
         cleanup_worktree(base, worktree_path)
 
+    shell.run(["git", "branch", "-D", branch_name], cwd=base, check=False)
     shell.run(
         ["git", "worktree", "add", str(worktree_path), "-b", branch_name, base_branch],
         cwd=base,
