@@ -28,7 +28,6 @@ export interface UiAutomation {
   name: string;
   description: string;
   triggers: string[];
-  skills: string[];
   agent: Record<string, unknown>;
   counts: UiAutomationCounts;
 }
@@ -46,6 +45,8 @@ export interface UiRunTrigger {
   external_id: string;
   text: string;
   author: string | null;
+  short_name: string | null;
+  repo: string | null;
   kind: string;
 }
 
@@ -63,6 +64,7 @@ export interface UiRun {
   failure_kind: FailureKind | null;
   failure_msg: string | null;
   waiting_reason: string | null;
+  outcome: string | null;
   agent_session_id: string | null;
   trigger: UiRunTrigger | null;
 }

@@ -16,6 +16,43 @@ export function fmtCost(usd: number | null): string {
   return `$${usd.toFixed(2)}`;
 }
 
+export interface SessionGroup<T> {
+  session_id: string;
+  runs: T[];
+  latest: T;
+}
+
+/**
+ * Group runs by `session_id` so the session itself is the unit shown in
+ * lists. Inside each group runs go newest-first; groups are ordered by
+ * the latest run's id (newest first).
+ */
+export function groupBySession<T extends { id: number; session_id: string; session_seq: number }>(
+  runs: T[],
+): SessionGroup<T>[] {
+  const map = new Map<string, T[]>();
+  for (const r of runs) {
+    const arr = map.get(r.session_id);
+    if (arr) arr.push(r);
+    else map.set(r.session_id, [r]);
+  }
+  const out: SessionGroup<T>[] = [];
+  for (const [sid, list] of map) {
+    list.sort((a, b) => b.session_seq - a.session_seq || b.id - a.id);
+    out.push({ session_id: sid, runs: list, latest: list[0] });
+  }
+  out.sort((a, b) => b.latest.id - a.latest.id);
+  return out;
+}
+
+export function pluralRu(n: number, forms: [string, string, string]): string {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return forms[0];
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return forms[1];
+  return forms[2];
+}
+
 export function fmtRelativeTime(iso: string | null): string {
   if (!iso) return 'never';
   const t = new Date(iso).getTime();

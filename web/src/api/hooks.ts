@@ -1,5 +1,6 @@
 import {
   useMutation,
+  useQueries,
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
@@ -57,6 +58,16 @@ export function useRun(runId: number | null) {
     queryFn: () => getJson<UiRunDetail>(`/runs/${runId}`),
     enabled: runId !== null,
     refetchInterval: POLL_MS,
+  });
+}
+
+export function useRuns_byIds(runIds: number[]) {
+  return useQueries({
+    queries: runIds.map((id) => ({
+      queryKey: ['run', id] as const,
+      queryFn: () => getJson<UiRunDetail>(`/runs/${id}`),
+      refetchInterval: POLL_MS,
+    })),
   });
 }
 

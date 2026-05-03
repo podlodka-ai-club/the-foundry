@@ -30,12 +30,14 @@ export type NodeKind =
   | 'final'
   | 'mark'
   | 'stage'
-  | 'user';
+  | 'user'
+  | 'input';
 
 export function classifyNode(e: UiEvent): NodeKind {
   if (e.kind === 'mark' || e.stage === 'milestone') return 'mark';
   if (e.stage === 'run_lifecycle') return 'mark';
   if (e.stage === 'user_input') return 'user';
+  if (e.kind === 'agent_input') return 'input';
   if (e.stage.startsWith('subagent:')) return 'subagent';
   if (e.kind === 'agent_tool') return 'tool';
   if (e.kind === 'agent_thinking') return 'thinking';
@@ -54,3 +56,62 @@ export function mergeBySeq(a: UiEvent[], b: UiEvent[]): UiEvent[] {
   for (const e of b) m.set(e.seq, e);
   return [...m.values()].sort((x, y) => x.seq - y.seq);
 }
+
+/**
+ * Walk the tree recursively. Counts every step except `mark` rows
+ * (milestones are visual dividers, not work). `last` is the most recent
+ * step in document order — used to render the collapsed Process line.
+ */
+export function summarizeTree(roots: TreeNode[]): {
+  steps: number;
+  last: TreeNode | null;
+} {
+  let steps = 0;
+  let last: TreeNode | null = null;
+  const visit = (nodes: TreeNode[]): void => {
+    for (const n of nodes) {
+      if (classifyNode(n.event) === 'mark') continue;
+      steps += 1;
+      last = n;
+      if (n.children.length > 0) visit(n.children);
+    }
+  };
+  visit(roots);
+  return { steps, last };
+}
+
+function eventText(e: UiEvent): string {
+  const p = e.payload;
+  if (typeof p['text'] === 'string') return p['text'];
+  if (typeof p['summary'] === 'string') return p['summary'];
+  if (typeof p['detail'] === 'string') return p['detail'];
+  return '';
+}
+
+/** One-line label for the collapsed Process indicator. */
+export function lastActionLabel(node: TreeNode | null): string {
+  if (!node) return '—';
+  const e = node.event;
+  const kind = classifyNode(e);
+  if (kind === 'tool') {
+    const name =
+      (e.payload['name'] as string | undefined) ??
+      (e.payload['tool'] as string | undefined) ??
+      'tool';
+    const detail = (e.payload['detail'] as string | undefined) ?? eventText(e);
+    return detail ? `${name} · ${detail}` : name;
+  }
+  if (kind === 'skill') {
+    const skill = e.stage.replace(/^skill:/, '');
+    const detail = eventText(e);
+    return detail ? `skill ${skill} · ${detail}` : `skill ${skill}`;
+  }
+  if (kind === 'subagent') {
+    const name = (e.payload['name'] as string | undefined) ?? e.stage.replace(/^subagent:/, '');
+    return `sub-agent ${name}`;
+  }
+  if (kind === 'final') return `итог: ${eventText(e) || 'done'}`;
+  if (kind === 'thinking') return eventText(e) || 'размышление';
+  return eventText(e) || e.kind;
+}
+

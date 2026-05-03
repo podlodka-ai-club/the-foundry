@@ -2,8 +2,9 @@ import type { JSX } from 'react';
 
 import { useAutomations, useRuns } from '../api/hooks';
 import type { RunsFilter } from '../api/types';
+import { groupBySession } from '../lib/format';
 import { IconInbox } from './icons';
-import { RunRow } from './RunRow';
+import { SessionRow } from './SessionRow';
 
 interface Props {
   filter: RunsFilter;
@@ -23,14 +24,14 @@ export function InboxList({
   const { data: runs, isLoading } = useRuns(filter);
   const { data: automations } = useAutomations();
 
-  const all = runs ?? [];
+  const groups = groupBySession(runs ?? []);
   const counts = {
-    running: all.filter((r) => r.status === 'running').length,
-    waiting: all.filter((r) => r.status === 'waiting').length,
-    failed: all.filter(
-      (r) => r.status === 'failed' || r.status === 'unclear',
+    running: groups.filter((g) => g.latest.status === 'running').length,
+    waiting: groups.filter((g) => g.latest.status === 'waiting').length,
+    failed: groups.filter(
+      (g) => g.latest.status === 'failed' || g.latest.status === 'unclear',
     ).length,
-    all: all.length,
+    all: groups.length,
   };
 
   return (
@@ -64,17 +65,17 @@ export function InboxList({
       </div>
       <div className="v2-runs-list">
         {isLoading && <div className="v2-pane-info">Загрузка…</div>}
-        {!isLoading && all.length === 0 && (
+        {!isLoading && groups.length === 0 && (
           <div className="v2-pane-info">Нет runs</div>
         )}
-        {all.map((r) => {
-          const aut = automations?.find((a) => a.id === r.automation_id);
+        {groups.map((g) => {
+          const aut = automations?.find((a) => a.id === g.latest.automation_id);
           return (
-            <RunRow
-              key={r.id}
-              run={r}
-              active={activeRunId === r.id}
-              onClick={() => onSelectRun(r.id)}
+            <SessionRow
+              key={g.session_id}
+              group={g}
+              active={g.runs.some((r) => r.id === activeRunId)}
+              onClick={() => onSelectRun(g.latest.id)}
               inbox
               automation={aut}
             />

@@ -30,7 +30,7 @@ export default function App(): JSX.Element {
         inboxFilter={inboxFilter}
         setInboxFilter={setInboxFilter}
       />
-      <RunDetail runId={runId} onPickAutomation={handlePickAutomation} />
+      <RunDetail runId={runId} onPickAutomation={handlePickAutomation} onSelectRun={setRunId} />
     </div>
   );
 }

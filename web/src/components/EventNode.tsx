@@ -121,7 +121,14 @@ export function EventNode({ node, first, last, depth }: Props): JSX.Element {
       (ev.payload['name'] as string | undefined) ??
       (ev.payload['tool'] as string | undefined) ??
       'tool';
-    const detail = payloadText(ev);
+    // Streaming normalizer (`_normalize_tool_event`) writes a per-tool
+    // human-readable hint into `payload.detail` (file path / command / url
+    // depending on tool). Fall back to text/summary/content for events
+    // that don't go through the normalizer.
+    const detail =
+      (typeof ev.payload['detail'] === 'string'
+        ? (ev.payload['detail'] as string)
+        : '') || payloadText(ev);
     return (
       <div
         className={`v2-tree-node ${first ? 'first' : ''} ${last ? 'last' : ''}`}
@@ -193,6 +200,31 @@ export function EventNode({ node, first, last, depth }: Props): JSX.Element {
               <EventTree nodes={node.children} depth={depth + 1} />
             </div>
           )}
+        </div>
+      </div>
+    );
+  }
+
+  if (kind === 'input') {
+    const promptText = (ev.payload['prompt'] as string | undefined) ?? '';
+    const backend = (ev.payload['backend'] as string | undefined) ?? '';
+    const model = (ev.payload['model'] as string | undefined) ?? '';
+    const preview = promptText.split('\n')[0] || '(empty prompt)';
+    return (
+      <div
+        className={`v2-tree-node ${first ? 'first' : ''} ${last ? 'last' : ''}`}
+      >
+        <div className="v2-tree-rail">
+          <span className="v2-tree-glyph">📥</span>
+        </div>
+        <div className="v2-tree-body">
+          <details className="v2-input-block">
+            <summary className="v2-input-head">
+              <span className="v2-input-tag">input → {backend}{model && `:${model}`}</span>
+              <span className="v2-input-preview">{preview}</span>
+            </summary>
+            <pre className="v2-input-body">{promptText}</pre>
+          </details>
         </div>
       </div>
     );

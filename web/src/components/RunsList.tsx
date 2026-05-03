@@ -4,8 +4,9 @@ import {
   useAutomationRuns,
   useAutomations,
 } from '../api/hooks';
+import { groupBySession } from '../lib/format';
 import { IconBolt, IconChevLeft } from './icons';
-import { RunRow } from './RunRow';
+import { SessionRow } from './SessionRow';
 
 interface Props {
   automationId: string;
@@ -23,7 +24,9 @@ export function RunsList({
   const { data: automations } = useAutomations();
   const { data: runs, isLoading } = useAutomationRuns(automationId);
   const automation = automations?.find((a) => a.id === automationId);
-  const list = runs ?? [];
+  // Group runs by session — one row per session, click opens the whole
+  // session feed in the right pane.
+  const groups = groupBySession(runs ?? []);
   const running = automation?.counts.running ?? 0;
 
   return (
@@ -49,20 +52,20 @@ export function RunsList({
               <b style={{ color: 'var(--running)' }}>{running} running</b> ·{' '}
             </>
           )}
-          <b>{automation?.counts.total ?? list.length}</b> total
+          <b>{automation?.counts.total ?? groups.length}</b> total
         </div>
       </div>
       <div className="v2-runs-list">
         {isLoading && <div className="v2-pane-info">Загрузка…</div>}
-        {!isLoading && list.length === 0 && (
+        {!isLoading && groups.length === 0 && (
           <div className="v2-pane-info">Нет runs</div>
         )}
-        {list.map((r) => (
-          <RunRow
-            key={r.id}
-            run={r}
-            active={activeRunId === r.id}
-            onClick={() => onSelectRun(r.id)}
+        {groups.map((g) => (
+          <SessionRow
+            key={g.session_id}
+            group={g}
+            active={g.runs.some((r) => r.id === activeRunId)}
+            onClick={() => onSelectRun(g.latest.id)}
           />
         ))}
       </div>

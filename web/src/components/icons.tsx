@@ -111,9 +111,28 @@ export const IconDiscord = (p: P): JSX.Element => (
   </svg>
 );
 
+export const IconChat = (p: P): JSX.Element => (
+  <svg {...base(p)}>
+    <path d="M4 5h16v11H8l-4 4z" />
+  </svg>
+);
+
+export const IconX = (p: P): JSX.Element => (
+  <svg {...base(p)}>
+    <path d="M6 6l12 12M18 6L6 18" />
+  </svg>
+);
+
+export const IconChevDown = (p: P): JSX.Element => (
+  <svg {...base(p)}>
+    <path d="M6 9l6 6 6-6" />
+  </svg>
+);
+
 export function triggerKindIcon(kind: string): (p: P) => JSX.Element {
-  if (kind === 'github' || kind === 'github_issues') return IconGitHub;
+  if (kind === 'github' || kind === 'github_issues' || kind.startsWith('issue.') || kind.startsWith('pr.')) return IconGitHub;
   if (kind === 'discord') return IconDiscord;
-  if (kind === 'cron') return IconClock;
+  if (kind === 'telegram' || kind === 'message') return IconChat;
+  if (kind === 'cron' || kind === 'cron.tick') return IconClock;
   return IconWebhook;
 }
