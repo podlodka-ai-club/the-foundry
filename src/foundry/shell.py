@@ -4,6 +4,8 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from .security import assert_command_allowed
+
 
 class ShellError(RuntimeError):
     def __init__(self, cmd: list[str], returncode: int, stdout: str, stderr: str):
@@ -33,7 +35,11 @@ def run(
     check: bool = True,
     timeout: int = 120,
     env: dict | None = None,
+    worktree_root: Path | None = None,
+    allow_unsafe: bool = False,
 ) -> Result:
+    if not allow_unsafe:
+        assert_command_allowed(cmd, cwd=cwd, worktree_root=worktree_root)
     completed = subprocess.run(
         cmd,
         cwd=str(cwd) if cwd else None,

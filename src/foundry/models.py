@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
+from typing import Any
 
 
 class Stage(str, Enum):
@@ -11,6 +12,7 @@ class Stage(str, Enum):
     PLAN = "plan"
     IMPLEMENT = "implement"
     VERIFY = "verify"
+    ISSUE_COMMENT = "issue_comment"
     PR = "pr"
     DONE = "done"
     FAILED = "failed"
@@ -19,6 +21,7 @@ class Stage(str, Enum):
 class TaskStatus(str, Enum):
     PENDING = "pending"
     RUNNING = "running"
+    BLOCKED = "blocked"
     DONE = "done"
     FAILED = "failed"
 
@@ -43,3 +46,14 @@ class Task:
     logs_json: str = "[]"
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)
+
+
+@dataclass
+class Event:
+    id: int
+    task_id: int
+    seq: int
+    stage: str
+    kind: str
+    ts_ms: int
+    payload: dict[str, Any]

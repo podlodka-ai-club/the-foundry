@@ -19,3 +19,7 @@ End-to-end скелет пайплайна с заглушками вместо 
 3. Создать на GitHub sandbox-репо (например `the-foundry-sandbox`), лейбл `agent-task`, 1–2 issue.
 4. `cp .env.example .env` и заполнить `GITHUB_TOKEN`, `SOURCE_REPO`, `TARGET_REPO`.
 5. `uv sync && uv run foundry run` — ожидаемый результат: в sandbox появился PR с новой строкой в README.
+
+## Observability & UI
+
+Поверх пайплайна добавлен observability-слой: append-only таблица `task_events` (запись через `record_event` и `stage_span` в [../../src/foundry/events.py](../../src/foundry/events.py)), FastAPI-эндпоинты в [../../src/api/](../../src/api/) (`/api/tasks`, `/api/tasks/{id}`, SSE на `/api/tasks/{id}/events`) и фронт на Vite/React в [../../web/](../../web/). UI поллит список каждые 3 сек и подписывается на SSE для раскрытой задачи; SSE реализован как polling SQLite, потому что pipeline и uvicorn — разные процессы. Канонические документы этого слоя — [../specs/observability-ui.md](../specs/observability-ui.md) и [../specs/observability-ui-plan.md](../specs/observability-ui-plan.md).

@@ -1,0 +1,101 @@
+services:
+  api:
+    image: the-foundry-backend:local
+    build:
+      context: .
+      args:
+        INSTALL_CLAUDE_CLI: ${INSTALL_CLAUDE_CLI:-false}
+        INSTALL_CODEX_CLI: ${INSTALL_CODEX_CLI:-false}
+        INSTALL_OPENCODE_CLI: ${INSTALL_OPENCODE_CLI:-false}
+    env_file:
+      - .env
+    environment:
+      DB_PATH: /app/data/foundry.sqlite
+      WORKTREE_ROOT: /app/worktrees
+      PYTHONPATH: /app/src
+      CODEX_SANDBOX_MODE: ${CODEX_SANDBOX_MODE:-danger-full-access}
+    volumes:
+      - ./data:/app/data
+      - ./worktrees:/app/worktrees
+      - ${HOME}/.config/gh:/root/.config/gh:ro
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  worker:
+    image: the-foundry-backend:local
+    build:
+      context: .
+      args:
+        INSTALL_CLAUDE_CLI: ${INSTALL_CLAUDE_CLI:-false}
+        INSTALL_CODEX_CLI: ${INSTALL_CODEX_CLI:-false}
+        INSTALL_OPENCODE_CLI: ${INSTALL_OPENCODE_CLI:-false}
+    env_file:
+      - .env
+    environment:
+      DB_PATH: /app/data/foundry.sqlite
+      WORKTREE_ROOT: /app/worktrees
+      PYTHONPATH: /app/src
+      CODEX_SANDBOX_MODE: ${CODEX_SANDBOX_MODE:-danger-full-access}
+      GIT_AUTHOR_NAME: ${GIT_AUTHOR_NAME:-Foundry Bot}
+      GIT_AUTHOR_EMAIL: ${GIT_AUTHOR_EMAIL:-foundry@example.local}
+      GIT_COMMITTER_NAME: ${GIT_COMMITTER_NAME:-Foundry Bot}
+      GIT_COMMITTER_EMAIL: ${GIT_COMMITTER_EMAIL:-foundry@example.local}
+    volumes:
+      - ./data:/app/data
+      - ./worktrees:/app/worktrees
+      - ${HOME}/.config/gh:/root/.config/gh:ro
+      # Uncomment the auth directory for the real coding backend you use.
+      # - ${HOME}/.claude:/root/.claude
+      - ${HOME}/.codex:/root/.codex
+      # - ${HOME}/.local/share/opencode:/root/.local/share/opencode
+    command: ["foundry", "run"]
+    depends_on:
+      api:
+        condition: service_healthy
+
+  pr-feedback:
+    image: the-foundry-backend:local
+    build:
+      context: .
+      args:
+        INSTALL_CLAUDE_CLI: ${INSTALL_CLAUDE_CLI:-false}
+        INSTALL_CODEX_CLI: ${INSTALL_CODEX_CLI:-false}
+        INSTALL_OPENCODE_CLI: ${INSTALL_OPENCODE_CLI:-false}
+    env_file:
+      - .env
+    environment:
+      DB_PATH: /app/data/foundry.sqlite
+      WORKTREE_ROOT: /app/worktrees
+      PYTHONPATH: /app/src
+      CODEX_SANDBOX_MODE: ${CODEX_SANDBOX_MODE:-danger-full-access}
+      GIT_AUTHOR_NAME: ${GIT_AUTHOR_NAME:-Foundry Bot}
+      GIT_AUTHOR_EMAIL: ${GIT_AUTHOR_EMAIL:-foundry@example.local}
+      GIT_COMMITTER_NAME: ${GIT_COMMITTER_NAME:-Foundry Bot}
+      GIT_COMMITTER_EMAIL: ${GIT_COMMITTER_EMAIL:-foundry@example.local}
+    volumes:
+      - ./data:/app/data
+      - ./worktrees:/app/worktrees
+      - ${HOME}/.config/gh:/root/.config/gh:ro
+      # - ${HOME}/.claude:/root/.claude
+      - ${HOME}/.codex:/root/.codex
+      # - ${HOME}/.local/share/opencode:/root/.local/share/opencode
+    command: ["foundry", "pr-feedback"]
+    depends_on:
+      api:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./web
+    environment:
+      VITE_API_TARGET: http://api:8000
+    ports:
+      - "5173:5173"
+    depends_on:
+      api:
+        condition: service_healthy

@@ -4,15 +4,11 @@ import traceback
 
 import structlog
 
-from . import state, worktree
+from . import observability, state
 from .config import Settings
 from .models import Stage, Task, TaskStatus
-from .stages import context as context_stage
 from .stages import fetch as fetch_stage
-from .stages import implement as implement_stage
-from .stages import plan as plan_stage
-from .stages import pr as pr_stage
-from .stages import verify as verify_stage
+from .workflows import dev_task
 
 log = structlog.get_logger()
 
@@ -22,78 +18,11 @@ log = structlog.get_logger()
 PRE_IMPLEMENT_STAGES = {Stage.FETCH, Stage.CONTEXT, Stage.PLAN}
 
 
-def _mark(settings: Settings, task: Task, *, stage: Stage, status: TaskStatus | None = None) -> Task:
-    task.current_stage = stage
-    if status is not None:
-        task.status = status
-    return state.upsert_task(settings.db_path, task)
-
-
-def _process_task(settings: Settings, task: Task) -> Task:
-    log.info("task.start", task_id=task.id, issue=task.issue_number)
-
-    if task.pr_url:
-        log.info("task.skip_already_has_pr", task_id=task.id, pr_url=task.pr_url)
-        return task
-
-    task.attempts += 1
-    task.status = TaskStatus.RUNNING
-    task = state.upsert_task(settings.db_path, task)
-
-    base = worktree.ensure_base_repo(settings.worktree_root, settings.source_repo)
-    wt_path, branch_name = worktree.create_worktree(settings.worktree_root, task.id)
-    task.worktree_path = str(wt_path)
-    task.branch_name = branch_name
-    task = state.upsert_task(settings.db_path, task)
-
-    # CONTEXT
-    task = _mark(settings, task, stage=Stage.CONTEXT)
-    ctx = context_stage.run(task, settings)
-    state.append_log(settings.db_path, task.id, Stage.CONTEXT, {"ok": True})
-
-    # PLAN
-    task = _mark(settings, task, stage=Stage.PLAN)
-    plan = plan_stage.run(task, ctx, settings)
-    state.append_log(settings.db_path, task.id, Stage.PLAN, {"steps": len(plan.get("steps", []))})
-
-    # IMPLEMENT
-    task = _mark(settings, task, stage=Stage.IMPLEMENT)
-    impl_result = implement_stage.run(task, plan, wt_path, settings)
-    state.append_log(settings.db_path, task.id, Stage.IMPLEMENT, impl_result)
-
-    # VERIFY
-    task = _mark(settings, task, stage=Stage.VERIFY)
-    verify_result = verify_stage.run(task, wt_path, settings)
-    state.append_log(settings.db_path, task.id, Stage.VERIFY, verify_result)
-    if not verify_result.get("passed"):
-        raise RuntimeError(f"verify failed: {verify_result}")
-
-    # PR
-    task = _mark(settings, task, stage=Stage.PR)
-    pr_result = pr_stage.run(task, wt_path, branch_name, settings)
-    task.pr_url = pr_result["pr_url"]
-    state.append_log(settings.db_path, task.id, Stage.PR, pr_result)
-
-    task = _mark(settings, task, stage=Stage.DONE, status=TaskStatus.DONE)
-    worktree.cleanup_worktree(base, wt_path)
-    log.info("task.done", task_id=task.id, pr_url=task.pr_url)
-    return task
-
-
-def run_once(settings: Settings) -> list[Task]:
-    """Fetch pending tasks and run each through the full pipeline.
-
-    Failures in one task do not stop the batch — they're persisted and the next
-    task proceeds. Returns the final list of tasks touched in this run.
-    """
-    state.init_db(settings.db_path)
-    tasks = fetch_stage.fetch(settings)
-    log.info("run.fetched", count=len(tasks))
-
+def _process_tasks(settings: Settings, tasks: list[Task]) -> list[Task]:
     processed: list[Task] = []
     for task in tasks:
         try:
-            processed.append(_process_task(settings, task))
+            processed.append(dev_task(settings, task))
         except Exception as e:
             failed_stage = task.current_stage
             tb = traceback.format_exc()
@@ -124,3 +53,30 @@ def run_once(settings: Settings) -> list[Task]:
             state.upsert_task(settings.db_path, task)
             processed.append(task)
     return processed
+
+
+def run_once(settings: Settings) -> list[Task]:
+    """Fetch pending tasks and run each through the `dev_task` workflow.
+
+    Failures in one task do not stop the batch — they're persisted and the next
+    task proceeds. Returns the final list of tasks touched in this run.
+    """
+    observability.init_langfuse()
+    state.init_db(settings.db_path)
+    tasks = fetch_stage.fetch(settings)
+    log.info("run.fetched", count=len(tasks))
+
+    processed = _process_tasks(settings, tasks)
+    observability.flush()
+    return processed
+
+
+def run_issue(settings: Settings, issue_number: int) -> Task:
+    """Run one issue immediately, without changing the polling query."""
+    observability.init_langfuse()
+    state.init_db(settings.db_path)
+    task = fetch_stage.fetch_issue(settings, issue_number)
+    log.info("run_issue.fetched", issue_number=issue_number, task_id=task.id)
+    processed = _process_tasks(settings, [task])
+    observability.flush()
+    return processed[0]

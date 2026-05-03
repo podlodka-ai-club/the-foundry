@@ -1,0 +1,14 @@
+.git
+.DS_Store
+.env
+.venv
+.pytest_cache
+__pycache__/
+*.pyc
+*.egg-info/
+
+data/
+worktrees/
+
+web/node_modules/
+web/dist/

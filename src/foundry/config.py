@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,6 +21,46 @@ class Settings:
     db_path: Path
     poll_interval_seconds: int
     github_token: str | None = None
+    issue_assignee: str | None = None
+    issue_milestone: str | None = None
+    issue_labels: tuple[str, ...] = ()
+    issue_limit: int = 50
+    max_implement_attempts: int = 2
+    verify_commands: tuple[tuple[str, ...], ...] | None = None
+    verify_command_timeout_sec: int = 300
+    verify_diff_max_bytes: int = 200_000
+
+
+def _parse_csv(raw: str) -> tuple[str, ...]:
+    return tuple(item.strip() for item in raw.split(",") if item.strip())
+
+
+def _parse_verify_commands(raw: str) -> tuple[tuple[str, ...], ...] | None:
+    """Parse VERIFY_COMMANDS env var as JSON list-of-list-of-strings.
+
+    Empty/missing → None (caller falls back to auto-detect).
+    Malformed JSON or wrong shape → ConfigError so startup fails fast.
+    """
+    raw = raw.strip()
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise ConfigError(f"VERIFY_COMMANDS is not valid JSON: {e}") from e
+    if not isinstance(parsed, list):
+        raise ConfigError("VERIFY_COMMANDS must be a JSON array of argv arrays")
+    out: list[tuple[str, ...]] = []
+    for item in parsed:
+        if not isinstance(item, list) or not all(isinstance(x, str) for x in item):
+            raise ConfigError(
+                "VERIFY_COMMANDS entries must be arrays of strings, e.g. "
+                '[["ruff","check","."],["pytest","-x"]]'
+            )
+        if not item:
+            raise ConfigError("VERIFY_COMMANDS entries must be non-empty argv arrays")
+        out.append(tuple(item))
+    return tuple(out)
 
 
 def load_settings(env_path: Path | None = None) -> Settings:
@@ -34,13 +75,27 @@ def load_settings(env_path: Path | None = None) -> Settings:
         raise ConfigError("SOURCE_REPO and TARGET_REPO must be set (owner/name)")
 
     token = os.environ.get("GITHUB_TOKEN", "").strip() or None
+    issue_label = os.environ.get("ISSUE_LABEL", "agent-task").strip()
+    issue_labels = _parse_csv(os.environ.get("ISSUE_LABELS", issue_label))
+    issue_assignee = os.environ.get("ISSUE_ASSIGNEE", "").strip() or None
+    issue_milestone = os.environ.get("ISSUE_MILESTONE", "").strip() or None
 
     return Settings(
         source_repo=source_repo,
         target_repo=target_repo,
-        issue_label=os.environ.get("ISSUE_LABEL", "agent-task").strip(),
+        issue_label=issue_label,
         worktree_root=Path(os.environ.get("WORKTREE_ROOT", "./worktrees")).resolve(),
         db_path=Path(os.environ.get("DB_PATH", "./data/foundry.sqlite")).resolve(),
         poll_interval_seconds=int(os.environ.get("POLL_INTERVAL_SECONDS", "30")),
         github_token=token,
+        issue_assignee=issue_assignee,
+        issue_milestone=issue_milestone,
+        issue_labels=issue_labels,
+        issue_limit=int(os.environ.get("ISSUE_LIMIT", "50")),
+        max_implement_attempts=int(os.environ.get("MAX_IMPLEMENT_ATTEMPTS", "2")),
+        verify_commands=_parse_verify_commands(os.environ.get("VERIFY_COMMANDS", "")),
+        verify_command_timeout_sec=int(
+            os.environ.get("VERIFY_COMMAND_TIMEOUT_SEC", "300")
+        ),
+        verify_diff_max_bytes=int(os.environ.get("VERIFY_DIFF_MAX_BYTES", "200000")),
     )

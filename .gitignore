@@ -1,9 +1,22 @@
+# --- Python ---
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+.pytest_cache/
+
+# --- Project state / secrets ---
 .env
 data/
 worktrees/
-__pycache__/
-.venv/
-*.egg-info/
-.pytest_cache/
-*.pyc
-.claude
+
+# --- Frontend ---
+web/node_modules
+web/dist
+
+# --- Tooling artefacts (Claude Code, aider, openmemcache, IDEs) ---
+.claude/
+.agents/
+.omc/
+.aider*
+.idea/
