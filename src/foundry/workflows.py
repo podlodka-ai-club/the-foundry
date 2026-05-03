@@ -15,6 +15,7 @@ refuses to run agent-defined branches.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -23,7 +24,7 @@ from typing import Any, Literal
 import structlog
 from langfuse import observe
 
-from . import state, worktree
+from . import shell, state, worktree
 from .agents import AgentSettings, AgentStage
 from .agents.base import AgentTask, build_fresh_prompt
 from .config import Settings
@@ -42,6 +43,7 @@ log = structlog.get_logger()
 class WorkflowName(str, Enum):
     DEV_TASK = "dev_task"
     PR_VERIFY = "pr_verify"
+    PR_FEEDBACK = "pr_feedback"
 
 
 FailureKind = Literal["deterministic", "acceptance", "infra", "unclear", "dangerous"]
@@ -198,6 +200,159 @@ def _build_attempt_input(
     if previous_report:
         parts.append(f"\n### Previous verification report\n{previous_report}\n")
     return "".join(parts)
+
+
+def _build_pr_feedback_input(pr: dict[str, Any], feedback: str) -> str:
+    return "\n".join(
+        [
+            "Address the latest PR feedback on the existing branch.",
+            "",
+            f"PR: #{pr.get('number')} {pr.get('title', '')}".strip(),
+            f"Branch: `{pr.get('headRefName', '')}`",
+            f"URL: {pr.get('url', '')}",
+            "",
+            "## Feedback",
+            feedback.strip(),
+            "",
+            "Make the minimal code changes needed to satisfy this feedback. "
+            "Do not open a new PR, switch branches, commit, or push.",
+        ]
+    )
+
+
+def _has_failing_check(check: dict[str, Any]) -> bool:
+    conclusion = str(check.get("conclusion") or "").upper()
+    status = str(check.get("status") or check.get("state") or "").upper()
+    if conclusion in {"FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED"}:
+        return True
+    return status in {"FAILURE", "ERROR", "FAILED"}
+
+
+def _format_pr_feedback(pr: dict[str, Any]) -> str:
+    parts: list[str] = []
+
+    requested = []
+    for review in pr.get("reviews", []):
+        if str(review.get("state", "")).upper() == "CHANGES_REQUESTED":
+            requested.append(review)
+    if requested:
+        lines = ["### Requested changes"]
+        for review in requested:
+            author = (review.get("author") or {}).get("login") or "unknown"
+            body = (review.get("body") or "").strip()
+            lines.append(f"- {author}: {body or 'requested changes'}")
+        parts.append("\n".join(lines))
+
+    failing = []
+    for check in pr.get("statusCheckRollup", []):
+        if isinstance(check, dict) and _has_failing_check(check):
+            failing.append(check)
+    if failing:
+        lines = ["### Failing CI"]
+        for check in failing:
+            name = (
+                check.get("name")
+                or check.get("context")
+                or check.get("workflowName")
+                or "check"
+            )
+            state = (
+                check.get("conclusion")
+                or check.get("status")
+                or check.get("state")
+                or "failed"
+            )
+            lines.append(f"- {name}: {state}")
+        parts.append("\n".join(lines))
+
+    comments = [
+        c.get("body", "").strip()
+        for c in pr.get("comments", [])
+        if isinstance(c, dict) and c.get("body", "").strip()
+    ]
+    if comments and (requested or failing):
+        parts.append("### PR comments\n" + "\n\n".join(comments[-5:]))
+
+    return "\n\n".join(parts).strip()
+
+
+def _list_open_foundry_prs(settings: Settings) -> list[dict[str, Any]]:
+    result = shell.run(
+        [
+            "gh",
+            "pr",
+            "list",
+            "--repo",
+            settings.target_repo,
+            "--state",
+            "open",
+            "--json",
+            "number,title,headRefName,url",
+            "--limit",
+            "100",
+        ]
+    )
+    prs = json.loads(result.stdout or "[]")
+    return [
+        pr
+        for pr in prs
+        if str(pr.get("headRefName") or "").startswith("foundry/task-")
+    ]
+
+
+def _view_pr_feedback(settings: Settings, pr_number: int) -> dict[str, Any]:
+    result = shell.run(
+        [
+            "gh",
+            "pr",
+            "view",
+            str(pr_number),
+            "--repo",
+            settings.target_repo,
+            "--json",
+            "number,title,headRefName,url,reviews,comments,statusCheckRollup",
+        ]
+    )
+    return json.loads(result.stdout or "{}")
+
+
+def _task_for_pr(settings: Settings, pr: dict[str, Any]) -> Task | None:
+    branch = str(pr.get("headRefName") or "")
+    for task in state.list_tasks(settings.db_path):
+        if task.branch_name == branch or task.pr_url == pr.get("url"):
+            return task
+
+    prefix = "foundry/task-"
+    if branch.startswith(prefix):
+        try:
+            return state.get_task(settings.db_path, int(branch.removeprefix(prefix)))
+        except ValueError:
+            return None
+    return None
+
+
+def _prepare_pr_feedback_worktree(
+    settings: Settings, task: Task, branch_name: str
+) -> tuple[Path, Path]:
+    base = worktree.ensure_base_repo(settings.worktree_root, settings.source_repo)
+    wt_path = (settings.worktree_root / f"task-{task.id}-pr-feedback").resolve()
+    if wt_path.exists():
+        worktree.cleanup_worktree(base, wt_path)
+    shell.run(["git", "branch", "-D", branch_name], cwd=base, check=False)
+    shell.run(["git", "fetch", "origin", branch_name], cwd=base)
+    shell.run(
+        [
+            "git",
+            "worktree",
+            "add",
+            str(wt_path),
+            "-B",
+            branch_name,
+            f"origin/{branch_name}",
+        ],
+        cwd=base,
+    )
+    return base, wt_path
 
 
 def _block_for_human(
@@ -511,3 +666,248 @@ def pr_verify(
         "workflow.pr_verify.done", task_id=task.id, passed=decision.passed
     )
     return decision
+
+
+@observe(name="workflow.pr_feedback")
+def pr_feedback(
+    settings: Settings,
+    task: Task,
+    pr: dict[str, Any],
+    feedback: str,
+) -> Task:
+    """Apply requested PR feedback on the existing PR branch.
+
+    This is intentionally small: it records the external feedback, runs the
+    implement agent with that feedback, verifies the result, pushes one commit
+    back to the same branch, and posts a PR comment.
+    """
+    branch_name = str(pr.get("headRefName") or task.branch_name or "")
+    if not branch_name:
+        raise RuntimeError(f"PR #{pr.get('number')} has no head branch")
+
+    log.info(
+        "workflow.pr_feedback.start",
+        task_id=task.id,
+        pr_number=pr.get("number"),
+        branch=branch_name,
+    )
+    task.branch_name = branch_name
+    task.pr_url = str(pr.get("url") or task.pr_url or "")
+    task.status = TaskStatus.PENDING
+    task.current_stage = Stage.IMPLEMENT
+    task = state.upsert_task(settings.db_path, task)
+    record_event(
+        settings.db_path,
+        task.id,
+        Stage.IMPLEMENT.value,
+        "pr_feedback",
+        {
+            "workflow": WorkflowName.PR_FEEDBACK.value,
+            "status": TaskStatus.PENDING.value,
+            "stage": Stage.IMPLEMENT.value,
+            "pr_number": pr.get("number"),
+            "pr_url": pr.get("url"),
+            "branch": branch_name,
+            "feedback": feedback,
+        },
+    )
+    state.append_log(
+        settings.db_path,
+        task.id,
+        Stage.IMPLEMENT,
+        {
+            "workflow": WorkflowName.PR_FEEDBACK.value,
+            "pr_number": pr.get("number"),
+            "branch": branch_name,
+            "feedback": feedback,
+        },
+    )
+
+    base, wt_path = _prepare_pr_feedback_worktree(settings, task, branch_name)
+    task.worktree_path = str(wt_path)
+    task.status = TaskStatus.RUNNING
+    task = state.upsert_task(settings.db_path, task)
+
+    try:
+        implement_input = _build_pr_feedback_input(pr, feedback)
+        impl_agent_settings = AgentSettings.from_env(
+            AgentStage.IMPLEMENT, db_path=settings.db_path
+        )
+        impl_agent_task = AgentTask(
+            id=task.id or task.issue_number,
+            title=task.issue_title,
+            description=task.issue_body,
+        )
+        impl_prompt = build_fresh_prompt(
+            AgentStage.IMPLEMENT, impl_agent_task, implement_input
+        )
+        with stage_span(
+            settings.db_path,
+            task.id,
+            Stage.IMPLEMENT.value,
+            input={
+                "workflow": WorkflowName.PR_FEEDBACK.value,
+                "pr_number": pr.get("number"),
+                "prompt": impl_prompt,
+            },
+            agent={
+                "name": impl_agent_settings.backend,
+                "model": impl_agent_settings.model,
+            },
+        ) as finish:
+            impl_result = agent_implement_stage.run(
+                task, {"plan": implement_input}, wt_path, settings
+            )
+            finish(
+                output={
+                    "summary": impl_result.get("result", ""),
+                    "text": impl_result.get("response", ""),
+                },
+                cost_usd=impl_result.get("cost_usd"),
+                tokens_in=impl_result.get("tokens_in"),
+                tokens_out=impl_result.get("tokens_out"),
+            )
+        state.append_log(
+            settings.db_path,
+            task.id,
+            Stage.IMPLEMENT,
+            {**impl_result, "workflow": WorkflowName.PR_FEEDBACK.value},
+        )
+
+        if needs_human_input(impl_result.get("response") or impl_result.get("result")):
+            return _block_for_human(
+                settings,
+                task,
+                blocked_stage=Stage.IMPLEMENT,
+                reason="implement requested human verification while addressing PR feedback",
+                questions=strip_human_input_marker(
+                    impl_result.get("response") or impl_result.get("result")
+                ),
+                worktree_path=wt_path,
+            )
+
+        task = _mark(settings, task, stage=Stage.VERIFY)
+        with stage_span(
+            settings.db_path,
+            task.id,
+            Stage.VERIFY.value,
+            input={
+                "workflow": WorkflowName.PR_FEEDBACK.value,
+                "pr_number": pr.get("number"),
+            },
+        ) as finish:
+            verify_raw = verify_stage.run(
+                task, wt_path, settings, impl_result=impl_result
+            )
+            decision = normalize_verification(verify_raw)
+            finish(
+                output={
+                    "passed": decision.passed,
+                    "retryable": decision.retryable,
+                    "requires_human": decision.requires_human,
+                    "failure_kind": decision.failure_kind,
+                    "report": decision.report,
+                    "workflow": WorkflowName.PR_FEEDBACK.value,
+                }
+            )
+        state.append_log(
+            settings.db_path,
+            task.id,
+            Stage.VERIFY,
+            {
+                "workflow": WorkflowName.PR_FEEDBACK.value,
+                "passed": decision.passed,
+                "report": decision.report,
+            },
+        )
+        if not decision.passed:
+            if decision.requires_human:
+                return _block_for_human(
+                    settings,
+                    task,
+                    blocked_stage=Stage.VERIFY,
+                    reason="verify requires human intervention after PR feedback fix",
+                    questions=decision.report,
+                    worktree_path=wt_path,
+                )
+            raise RuntimeError(
+                "PR feedback fix did not pass verification: " + decision.report
+            )
+
+        task = _mark(settings, task, stage=Stage.PR)
+        commit_message = f"foundry: address PR feedback for task #{task.issue_number}"
+        with stage_span(
+            settings.db_path,
+            task.id,
+            Stage.PR.value,
+            input={
+                "workflow": WorkflowName.PR_FEEDBACK.value,
+                "pr_number": pr.get("number"),
+            },
+        ) as finish:
+            push_result = pr_stage.commit_and_push_changes(
+                task, wt_path, branch_name, commit_message
+            )
+            comment = "\n".join(
+                [
+                    "The Foundry pushed a follow-up commit addressing the latest PR feedback.",
+                    "",
+                    "## Verification",
+                    decision.report.strip() or "Verification passed.",
+                ]
+            )
+            shell.run(
+                [
+                    "gh",
+                    "pr",
+                    "comment",
+                    str(pr.get("number")),
+                    "--repo",
+                    settings.target_repo,
+                    "--body",
+                    comment,
+                ],
+                cwd=wt_path,
+            )
+            finish(output={**push_result, "commented": True})
+        state.append_log(
+            settings.db_path,
+            task.id,
+            Stage.PR,
+            {
+                "workflow": WorkflowName.PR_FEEDBACK.value,
+                "branch": branch_name,
+                "commented": True,
+            },
+        )
+
+        task = _mark(settings, task, stage=Stage.DONE, status=TaskStatus.DONE)
+        log.info(
+            "workflow.pr_feedback.done",
+            task_id=task.id,
+            pr_number=pr.get("number"),
+        )
+        return task
+    finally:
+        worktree.cleanup_worktree(base, wt_path)
+
+
+def pr_feedback_once(settings: Settings) -> list[Task]:
+    """Run one PR feedback pass for open `foundry/task-*` PRs."""
+    state.init_db(settings.db_path)
+    processed: list[Task] = []
+    for listed_pr in _list_open_foundry_prs(settings):
+        pr = _view_pr_feedback(settings, int(listed_pr["number"]))
+        feedback = _format_pr_feedback(pr)
+        if not feedback:
+            continue
+        task = _task_for_pr(settings, pr)
+        if task is None:
+            log.warning(
+                "workflow.pr_feedback.no_task",
+                pr_number=pr.get("number"),
+                branch=pr.get("headRefName"),
+            )
+            continue
+        processed.append(pr_feedback(settings, task, pr, feedback))
+    return processed

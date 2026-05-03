@@ -24,17 +24,8 @@ def run(
     implement agent response until a real verifier exists) embedded in the PR
     body.
     """
-    shell.run(["git", "add", "-A"], cwd=worktree_path)
-
-    status = shell.run(["git", "status", "--porcelain"], cwd=worktree_path)
-    changes = [line for line in status.stdout.splitlines() if line.strip()]
-    if not changes:
-        raise RuntimeError("implement stage produced no changes — nothing to commit")
-    _sanity_check_changes(changes)
-
     commit_message = f"foundry: task #{task.issue_number} — {task.issue_title}"
-    shell.run(["git", "commit", "-m", commit_message], cwd=worktree_path)
-    shell.run(["git", "push", "-u", "origin", branch_name], cwd=worktree_path)
+    commit_and_push_changes(task, worktree_path, branch_name, commit_message)
 
     body_parts = [
         "Automated PR from The Foundry (skeleton mode).",
@@ -73,6 +64,26 @@ def run(
 
 MAX_FILES_PER_PR = 40
 FORBIDDEN_PATH_SUBSTRINGS = ("__pycache__", ".pyc", ".DS_Store", ".venv/")
+
+
+def commit_and_push_changes(
+    task: Task,
+    worktree_path: Path,
+    branch_name: str,
+    commit_message: str,
+) -> dict:
+    """Commit current worktree changes and push them to the PR branch."""
+    shell.run(["git", "add", "-A"], cwd=worktree_path)
+
+    status = shell.run(["git", "status", "--porcelain"], cwd=worktree_path)
+    changes = [line for line in status.stdout.splitlines() if line.strip()]
+    if not changes:
+        raise RuntimeError("implement stage produced no changes — nothing to commit")
+    _sanity_check_changes(changes)
+
+    shell.run(["git", "commit", "-m", commit_message], cwd=worktree_path)
+    shell.run(["git", "push", "-u", "origin", branch_name], cwd=worktree_path)
+    return {"branch": branch_name, "files_changed": len(changes)}
 
 
 def _sanity_check_changes(porcelain_lines: list[str]) -> None:

@@ -429,7 +429,9 @@ def test_workflows_module_exposes_public_names() -> None:
     # Guardrail: if any of these disappear, downstream callers break silently.
     assert workflows.WorkflowName.DEV_TASK.value == "dev_task"
     assert workflows.WorkflowName.PR_VERIFY.value == "pr_verify"
+    assert workflows.WorkflowName.PR_FEEDBACK.value == "pr_feedback"
     assert hasattr(workflows, "dev_task")
     assert hasattr(workflows, "pr_verify")
+    assert hasattr(workflows, "pr_feedback_once")
     assert hasattr(workflows, "normalize_verification")
     assert hasattr(workflows, "normalize_planner_outcome")

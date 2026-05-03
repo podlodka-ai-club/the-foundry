@@ -6,7 +6,7 @@ import time
 import click
 import structlog
 
-from . import pipeline, state
+from . import pipeline, state, workflows
 from .config import ConfigError, load_settings
 from .models import Stage, TaskStatus
 
@@ -71,6 +71,29 @@ def run(once: bool, interval: int | None) -> None:
             time.sleep(sleep_s)
     except KeyboardInterrupt:
         click.echo("foundry: stopped")
+
+
+@main.command("pr-feedback")
+@click.option("--once", is_flag=True, help="Run a single PR feedback pass and exit.")
+def pr_feedback(once: bool) -> None:
+    """Apply review / CI feedback on open Foundry PR branches."""
+    if not once:
+        click.echo("foundry pr-feedback currently supports --once only", err=True)
+        sys.exit(2)
+    try:
+        settings = load_settings()
+    except ConfigError as e:
+        click.echo(f"config error: {e}", err=True)
+        sys.exit(2)
+
+    processed = workflows.pr_feedback_once(settings)
+    if not processed:
+        click.echo("no PR feedback to process")
+        return
+    for task in processed:
+        click.echo(
+            f"#{task.issue_number:>4}  {task.status.value:<8}  {task.current_stage.value:<10}  {task.pr_url or '-'}"
+        )
 
 
 @main.command()
