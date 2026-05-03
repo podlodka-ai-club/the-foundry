@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
@@ -69,11 +70,29 @@ CREATE TABLE IF NOT EXISTS repo_memory (
 );
 """
 
+_INIT_DB_MAX_ATTEMPTS = 5
+_INIT_DB_RETRY_DELAY_SECONDS = 0.2
+
 
 def init_db(db_path: Path) -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    with _connect(db_path) as conn:
-        conn.executescript(SCHEMA)
+    for attempt in range(_INIT_DB_MAX_ATTEMPTS):
+        try:
+            with _connect(db_path) as conn:
+                conn.executescript(SCHEMA)
+            return
+        except sqlite3.OperationalError as e:
+            if (
+                not _is_transient_init_error(e)
+                or attempt == _INIT_DB_MAX_ATTEMPTS - 1
+            ):
+                raise
+            time.sleep(_INIT_DB_RETRY_DELAY_SECONDS * (attempt + 1))
+
+
+def _is_transient_init_error(error: sqlite3.OperationalError) -> bool:
+    message = str(error).lower()
+    return "disk i/o error" in message or "database is locked" in message
 
 
 @contextmanager

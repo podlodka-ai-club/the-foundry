@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
+
+import pytest
 
 from foundry import state
 from foundry.models import Stage, Task, TaskStatus
@@ -22,6 +25,31 @@ def test_init_creates_schema(tmp_path: Path) -> None:
     assert db.exists()
     # running twice must be idempotent
     state.init_db(db)
+
+
+def test_init_retries_transient_disk_io_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db = tmp_path / "foundry.sqlite"
+    real_connect = sqlite3.connect
+    attempts = 0
+    sleeps: list[float] = []
+
+    def flaky_connect(*args: object, **kwargs: object) -> sqlite3.Connection:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise sqlite3.OperationalError("disk I/O error")
+        return real_connect(*args, **kwargs)
+
+    monkeypatch.setattr(state.sqlite3, "connect", flaky_connect)
+    monkeypatch.setattr(state.time, "sleep", sleeps.append)
+
+    state.init_db(db)
+
+    assert db.exists()
+    assert attempts == 2
+    assert sleeps == [0.2]
 
 
 def test_upsert_insert_then_update(tmp_path: Path) -> None:
