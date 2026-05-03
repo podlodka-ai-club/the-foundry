@@ -1,5 +1,12 @@
 # Agent Protocol — план
 
+> **Исторический документ (≤ C2).** Описывает promised-state до перехода
+> к event-driven модели в C3. Стадии `plan` / `implement` / `verify` /
+> `pr`, на которые опирается этот текст, удалены вместе с `Stage` enum
+> в C5; `AgentStage` enum внутри агентного слоя удалён в фазе 1
+> упрощения 2026-05-03 (см. [simplify-2026-05.md](simplify-2026-05.md)).
+> Текущий контракт агента: см. [../../src/foundry/agents/CLAUDE.md](../../src/foundry/agents/CLAUDE.md).
+
 Цель — ввести agent-agnostic слой между стадией `implement` и конкретным coding-агентом (claude CLI, aider, stub). Остальные стадии (`plan`, `verify`, `pr`) протокола не касаются.
 
 ## Что НЕ делаем в этой итерации

@@ -28,6 +28,22 @@
 
 ---
 
+## Прогресс
+
+- [x] Фаза 0 — характеризационные тесты (`a6333a8`)
+- [x] Фаза 1 — убить `AgentStage` (`12e2e3d`)
+- [x] Фаза 2 — `Automation.workspace` дискриминатор (`d5028d0`)
+- [x] Фаза 3 — выделить `runner.py` (`ff35b2f`)
+- [x] Фаза 4 — документация (этот коммит)
+
+Сводка изменений:
+- `AgentStage` (enum + поле в `AgentTask`/`AgentResult`/`AgentSettings`/протоколе/4 backends/orchestrator/mcp.runner) удалён.
+- `AgentSettings.from_env(stage)` → `AgentSettings.from_env()`; per-stage env vars (`AGENT_PLAN_MODEL`, ...) больше нет — один `AGENT_MODEL` / `AGENT_TIMEOUT_SEC` / `AGENT_MAX_TURNS`.
+- `Automation.cwd / git_worktree / pr_worktree` (3 поля) → `Automation.workspace` (`Literal[...]`) + `cwd` для `workspace="fixed"`. `__post_init__` проверяет инвариант.
+- `orchestrator.py`: 436 строк → 124 строки. Тело `execute_run` в новом `src/foundry/runner.py` (pure-функции, принимает `Settings` через аргумент).
+- `record_event(stage=...)` остался — `stage` в `run_events` теперь свободный namespace (`"run"` / `"agent"` / `"subagent:..."` / `"skill:..."` / `"run_lifecycle"`), не enum. Колонка БД не меняется.
+- 4 характеризационных теста + полная сюита 291 — зелёные после каждой фазы.
+
 ## Фаза 0 — характеризационные тесты (safety net)
 
 **Что:** написать (или дополнить существующие) e2e тесты на 3 автоматизации
