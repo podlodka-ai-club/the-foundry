@@ -273,38 +273,39 @@ class Orchestrator:
     ) -> tuple[Path, str, Callable[[], None] | None]:
         """Return ``(cwd_path, branch_name, cleanup_fn)`` for this run.
 
-        Four modes (see `Automation` docstring):
-
-        1. `git_worktree=True` → real worktree on `foundry/task-{run_id}`.
-        2. `pr_worktree=True` → per-PR detached worktree under the umbrella
-           folder, with rsync overlay for untracked configs. ``cleanup_fn``
-           tears it down at run end.
-        3. `cwd is not None` → use that absolute path verbatim; branch is a
-           synthetic placeholder so env vars stay populated for skills that
-           still read them. Multi-turn chat-style automations should set
-           this to a stable path so Claude CLI's `--resume` (which is
-           indexed by cwd hash) keeps finding prior sessions.
-        4. fallback → throwaway `WORKTREE_ROOT/run-{run_id}/` dir.
+        Dispatched on ``automation.workspace`` (see ``Automation`` docstring
+        for the four modes). The ``branch_name`` for non-git modes is a
+        synthetic placeholder kept around so env vars (``FOUNDRY_BRANCH``)
+        stay populated for skills that still read them.
         """
-        if automation.git_worktree:
-            await asyncio.to_thread(
-                worktree.ensure_base_repo,
-                self.settings.worktree_root,
-                self.settings.source_repo,
-            )
-            wt_path, branch = await asyncio.to_thread(
-                worktree.create_worktree, self.settings.worktree_root, run_id
-            )
-            return wt_path, branch, None
-        if automation.pr_worktree:
-            return await self._prepare_pr_worktree(automation, event, run_id)
-        if automation.cwd is not None:
-            path = automation.cwd.expanduser()
-            path.mkdir(parents=True, exist_ok=True)
-            return path, f"foundry/run-{run_id}", None
-        path = self.settings.worktree_root / f"run-{run_id}"
-        path.mkdir(parents=True, exist_ok=True)
-        return path, f"foundry/run-{run_id}", None
+        match automation.workspace:
+            case "git_worktree":
+                await asyncio.to_thread(
+                    worktree.ensure_base_repo,
+                    self.settings.worktree_root,
+                    self.settings.source_repo,
+                )
+                wt_path, branch = await asyncio.to_thread(
+                    worktree.create_worktree, self.settings.worktree_root, run_id
+                )
+                return wt_path, branch, None
+            case "pr_worktree":
+                return await self._prepare_pr_worktree(automation, event, run_id)
+            case "fixed":
+                # cwd presence is validated in Automation.__post_init__.
+                assert automation.cwd is not None
+                path = automation.cwd.expanduser()
+                path.mkdir(parents=True, exist_ok=True)
+                return path, f"foundry/run-{run_id}", None
+            case "ephemeral":
+                path = self.settings.worktree_root / f"run-{run_id}"
+                path.mkdir(parents=True, exist_ok=True)
+                return path, f"foundry/run-{run_id}", None
+            case _:
+                raise ValueError(
+                    f"automation {automation.id!r}: unknown workspace "
+                    f"{automation.workspace!r}"
+                )
 
     async def _prepare_pr_worktree(
         self, automation: Automation, event: Event, run_id: int
@@ -355,7 +356,7 @@ class Orchestrator:
             # sendMessage from inside the MCP subprocess.
             if self.settings.telegram_bot_token:
                 env["TELEGRAM_BOT_TOKEN"] = self.settings.telegram_bot_token
-        if automation.pr_worktree and event.source == "github_pr_review":
+        if automation.workspace == "pr_worktree" and event.source == "github_pr_review":
             payload = event.payload or {}
             for key, var in (
                 ("repo", "FOUNDRY_PR_REPO"),

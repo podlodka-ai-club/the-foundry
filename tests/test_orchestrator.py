@@ -46,7 +46,7 @@ def _automation(
     aid: str = "test",
     triggers_: tuple[str, ...] = ("github_issues.issue_opened",),
     backend: str = "stub",
-    git_worktree: bool = False,
+    workspace: str = "ephemeral",
 ) -> Automation:
     return Automation(
         id=aid,
@@ -55,7 +55,7 @@ def _automation(
         triggers=triggers_,
         agent={"backend": backend, "model": None},
         prompt_path="",
-        git_worktree=git_worktree,
+        workspace=workspace,  # type: ignore[arg-type]
     )
 
 

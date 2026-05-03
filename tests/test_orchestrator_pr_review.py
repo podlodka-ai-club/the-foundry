@@ -3,7 +3,7 @@
 Targets:
 - ``Automation.session_key`` collapses multiple events of the same PR into
   one rolling session (so the agent CLI can resume across pushes).
-- ``pr_worktree=True`` path goes through ``pr_worktree.prepare_pr_worktree``
+- ``workspace="pr_worktree"`` path goes through ``pr_worktree.prepare_pr_worktree``
   with the right args and runs the cleanup callback afterwards.
 - Missing ``pr_review_base_path`` setting → run ends in FAILED/INFRA.
 """
@@ -46,7 +46,7 @@ def _pr_review_automation() -> Automation:
         triggers=("github_pr_review.review_requested",),
         agent={"backend": "stub", "model": None},
         prompt_path="",
-        pr_worktree=True,
+        workspace="pr_worktree",
         session_key=_pr_review_session_key,
     )
 
