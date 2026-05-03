@@ -5,6 +5,8 @@ from unittest.mock import patch
 
 from foundry.agents import AgentSettings, AgentStage, AgentTask
 from foundry.agents.codex_cli import CodexCliAgent
+from foundry.events import read_events
+from foundry.state import init_db
 
 
 def _task(task_id: int = 1) -> AgentTask:
@@ -63,8 +65,8 @@ def test_apply_uses_exec_for_fresh_and_resume_subcommand_next(tmp_path: Path) ->
         {"type": "item.completed", "item": {"type": "agent_message", "text": "again"}},
     ]
 
-    with patch("foundry.agents.codex_cli.run_cli_jsonl") as run:
-        run.side_effect = [fresh_events, resume_events]
+    with patch("foundry.agents.codex_cli.iter_cli_jsonl") as run:
+        run.side_effect = [iter(fresh_events), iter(resume_events)]
         first = agent.apply(task=task, worktree=tmp_path, input="hi")
         second = agent.apply(task=task, worktree=tmp_path, input="hi again")
 
@@ -83,8 +85,10 @@ def test_apply_passes_model_and_worktree_to_cli(tmp_path: Path) -> None:
     agent = CodexCliAgent(settings=_settings(model="gpt-4o"))
 
     with patch(
-        "foundry.agents.codex_cli.run_cli_jsonl",
-        return_value=[{"type": "item.completed", "item": {"type": "agent_message", "text": "ok"}}],
+        "foundry.agents.codex_cli.iter_cli_jsonl",
+        return_value=iter(
+            [{"type": "item.completed", "item": {"type": "agent_message", "text": "ok"}}]
+        ),
     ) as run:
         agent.apply(task=_task(), worktree=tmp_path, input="")
 
@@ -129,3 +133,78 @@ def test_extract_usage_returns_none_when_no_turn_completed() -> None:
     events = [{"type": "item.completed", "item": {"type": "agent_message", "text": "x"}}]
 
     assert CodexCliAgent._extract_usage(events) is None
+
+
+def test_codex_tool_item_normalizes_json_arguments_and_shell_name() -> None:
+    raw = CodexCliAgent._codex_tool_item_to_raw(
+        {
+            "type": "local_shell_call",
+            "arguments": '{"command": "pytest -q", "description": "run tests"}',
+        }
+    )
+
+    assert raw == {
+        "name": "Bash",
+        "input": {"command": "pytest -q", "description": "run tests"},
+    }
+
+
+def test_codex_cli_emits_agent_events_during_apply(tmp_path: Path) -> None:
+    db = tmp_path / "f.sqlite"
+    init_db(db)
+    agent = CodexCliAgent(settings=_settings(db_path=db))
+    task = _task(task_id=202)
+    streamed = [
+        {"type": "thread.started", "thread_id": "tid-202"},
+        {
+            "type": "item.completed",
+            "item": {
+                "type": "tool_call",
+                "name": "Read",
+                "input": {"file_path": "/repo/app.py"},
+            },
+        },
+        {
+            "type": "item.completed",
+            "item": {"type": "reasoning", "summary": "Need to inspect the failing UI path."},
+        },
+        {
+            "type": "item.completed",
+            "item": {"type": "agent_message", "text": "fixed\nmore"},
+        },
+        {
+            "type": "turn.completed",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        },
+    ]
+
+    with patch(
+        "foundry.agents.codex_cli.iter_cli_jsonl",
+        return_value=iter(streamed),
+    ):
+        result = agent.apply(task=task, worktree=tmp_path, input="")
+
+    assert result.response == "fixed\nmore"
+    assert result.result == "fixed"
+    assert result.tokens_in == 10
+    assert result.tokens_out == 5
+
+    events = read_events(db, task_id=202)
+    kinds = [(e.kind, e.seq) for e in events]
+    kind_names = [k for k, _ in kinds]
+    assert "agent_tool" in kind_names
+    assert "agent_thinking" in kind_names
+    assert "agent_text" in kind_names
+    assert "agent_result" in kind_names
+
+    tool_event = next(e for e in events if e.kind == "agent_tool")
+    assert tool_event.payload["tool"] == "Read"
+    assert tool_event.payload["detail"] == "/repo/app.py"
+
+    tool_seq = next(seq for k, seq in kinds if k == "agent_tool")
+    result_seq = next(seq for k, seq in kinds if k == "agent_result")
+    assert tool_seq < result_seq
+
+    result_event = next(e for e in events if e.kind == "agent_result")
+    assert result_event.payload["summary"] == "fixed"
+    assert result_event.payload["text"] == "fixed\nmore"
