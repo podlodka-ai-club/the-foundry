@@ -169,6 +169,31 @@ def test_reset_task_rejects_running(client: TestClient, _setup_env: Path) -> Non
     assert response.status_code == 409
 
 
+def test_resume_task_sets_pending_fetch(client: TestClient, _setup_env: Path) -> None:
+    # Arrange
+    db = _setup_env
+    task = state.upsert_task(
+        db,
+        Task(
+            repo="owner/repo",
+            issue_number=11,
+            issue_title="Blocked task",
+            issue_body="Body",
+            status=TaskStatus.BLOCKED,
+            current_stage=Stage.PLAN,
+        ),
+    )
+
+    # Act
+    response = client.post(f"/api/tasks/{task.id}/resume")
+
+    # Assert
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "pending"
+    assert payload["current_stage"] == "fetch"
+
+
 def test_get_repos_counts(client: TestClient, _setup_env: Path) -> None:
     # Arrange
     db = _setup_env
@@ -214,4 +239,10 @@ def test_get_repos_counts(client: TestClient, _setup_env: Path) -> None:
     assert len(payload) == 1
     entry = payload[0]
     assert entry["repo"] == "owner/repo"
-    assert entry["counts"] == {"RUNNING": 0, "DONE": 1, "FAILED": 1, "PENDING": 1}
+    assert entry["counts"] == {
+        "RUNNING": 0,
+        "BLOCKED": 0,
+        "DONE": 1,
+        "FAILED": 1,
+        "PENDING": 1,
+    }

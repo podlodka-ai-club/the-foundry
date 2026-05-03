@@ -59,6 +59,16 @@ async def get_task(task_id: int) -> UiTask:
 @app.post("/api/tasks/{task_id}/reset", response_model=UiTask)
 async def reset_task(task_id: int) -> UiTask:
     """Reset a task to pending/fetch so the worker can retry it."""
+    return _reset_task(task_id)
+
+
+@app.post("/api/tasks/{task_id}/resume", response_model=UiTask)
+async def resume_task(task_id: int) -> UiTask:
+    """Resume a human-blocked task after someone answered in the issue."""
+    return _reset_task(task_id)
+
+
+def _reset_task(task_id: int) -> UiTask:
     settings = _settings_or_raise()
     state.init_db(settings.db_path)
 
@@ -96,6 +106,7 @@ async def get_repos() -> list[dict]:
                 "repo": repo,
                 "counts": {
                     "RUNNING": counts.get("RUNNING", 0),
+                    "BLOCKED": counts.get("BLOCKED", 0),
                     "DONE": counts.get("DONE", 0),
                     "FAILED": counts.get("FAILED", 0),
                     "PENDING": counts.get("PENDING", 0),

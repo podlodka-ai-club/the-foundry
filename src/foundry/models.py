@@ -12,6 +12,7 @@ class Stage(str, Enum):
     PLAN = "plan"
     IMPLEMENT = "implement"
     VERIFY = "verify"
+    ISSUE_COMMENT = "issue_comment"
     PR = "pr"
     DONE = "done"
     FAILED = "failed"
@@ -20,6 +21,7 @@ class Stage(str, Enum):
 class TaskStatus(str, Enum):
     PENDING = "pending"
     RUNNING = "running"
+    BLOCKED = "blocked"
     DONE = "done"
     FAILED = "failed"
 

@@ -32,6 +32,7 @@ from .models import Stage, Task, TaskStatus
 from .stages import agent_implement as agent_implement_stage
 from .stages import agent_plan as agent_plan_stage
 from .stages import context as context_stage
+from .stages import issue_comment as issue_comment_stage
 from .stages import pr as pr_stage
 from .stages import verify as verify_stage
 
@@ -72,6 +73,7 @@ ALLOWED_PLANNER_OUTCOMES: frozenset[str] = frozenset(
     {"plan_ready", "needs_input", "declined", "decompose"}
 )
 PlannerOutcome = Literal["plan_ready", "needs_input", "declined", "decompose"]
+NEED_VERIFICATION = "NEED_VERIFICATION"
 
 
 def normalize_planner_outcome(outcome: str | None) -> PlannerOutcome:
@@ -83,6 +85,26 @@ def normalize_planner_outcome(outcome: str | None) -> PlannerOutcome:
     if outcome in ALLOWED_PLANNER_OUTCOMES:
         return outcome  # type: ignore[return-value]
     return "plan_ready"
+
+
+def needs_human_input(text: str | None) -> bool:
+    """Return True when the last non-empty agent output line asks for a human."""
+    if not text:
+        return False
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return bool(lines) and lines[-1] == NEED_VERIFICATION
+
+
+def strip_human_input_marker(text: str | None) -> str:
+    """Remove the terminal NEED_VERIFICATION marker from a human-facing comment."""
+    if not text:
+        return ""
+    lines = text.splitlines()
+    while lines and not lines[-1].strip():
+        lines.pop()
+    if lines and lines[-1].strip() == NEED_VERIFICATION:
+        lines.pop()
+    return "\n".join(lines).strip()
 
 
 def normalize_verification(raw: dict[str, Any]) -> VerificationDecision:
@@ -178,6 +200,47 @@ def _build_attempt_input(
     return "".join(parts)
 
 
+def _block_for_human(
+    settings: Settings,
+    task: Task,
+    *,
+    blocked_stage: Stage,
+    reason: str,
+    questions: str,
+    worktree_path: Path | None,
+) -> Task:
+    comment = "\n".join(
+        part
+        for part in [
+            "The Foundry needs human input before continuing this task.",
+            "",
+            f"Blocked at stage: `{blocked_stage.value}`.",
+            "",
+            questions.strip() or reason,
+        ]
+        if part
+    )
+    with stage_span(
+        settings.db_path,
+        task.id,
+        Stage.ISSUE_COMMENT.value,
+        input={"blocked_stage": blocked_stage.value},
+    ) as finish:
+        result = issue_comment_stage.run(
+            task, settings, comment, cwd=worktree_path
+        )
+        finish(output={"issue_number": task.issue_number})
+    state.append_log(
+        settings.db_path,
+        task.id,
+        Stage.ISSUE_COMMENT,
+        {"blocked_stage": blocked_stage.value, "reason": reason, **result},
+    )
+    task.current_stage = blocked_stage
+    task.status = TaskStatus.BLOCKED
+    return state.upsert_task(settings.db_path, task)
+
+
 @observe(name="workflow.dev_task")
 def dev_task(settings: Settings, task: Task) -> Task:
     """Issue-driven development workflow.
@@ -239,10 +302,19 @@ def dev_task(settings: Settings, task: Task) -> Task:
     state.append_log(
         settings.db_path, task.id, Stage.PLAN, {"summary": plan.get("summary", "")}
     )
+    plan_text = plan.get("plan", "")
+    if needs_human_input(plan_text):
+        return _block_for_human(
+            settings,
+            task,
+            blocked_stage=Stage.PLAN,
+            reason="plan requested human verification",
+            questions=strip_human_input_marker(plan_text),
+            worktree_path=wt_path,
+        )
 
     # IMPLEMENT → VERIFY quality-gate loop
     max_attempts = max(1, settings.max_implement_attempts)
-    plan_text = plan.get("plan", "")
     impl_result: dict[str, Any] = {}
     decision = VerificationDecision(
         passed=False,
@@ -301,6 +373,17 @@ def dev_task(settings: Settings, task: Task) -> Task:
             Stage.IMPLEMENT,
             {**impl_result, "attempt": attempt},
         )
+        if needs_human_input(impl_result.get("response") or impl_result.get("result")):
+            return _block_for_human(
+                settings,
+                task,
+                blocked_stage=Stage.IMPLEMENT,
+                reason=f"implement requested human verification on attempt {attempt}",
+                questions=strip_human_input_marker(
+                    impl_result.get("response") or impl_result.get("result")
+                ),
+                worktree_path=wt_path,
+            )
 
         # VERIFY
         task = _mark(settings, task, stage=Stage.VERIFY)
@@ -340,9 +423,16 @@ def dev_task(settings: Settings, task: Task) -> Task:
         if decision.passed:
             break
         if decision.requires_human:
-            raise RuntimeError(
-                f"verify requires human intervention (attempt {attempt}, "
-                f"kind={decision.failure_kind}): {decision.report}"
+            return _block_for_human(
+                settings,
+                task,
+                blocked_stage=Stage.VERIFY,
+                reason=(
+                    f"verify requires human intervention (attempt {attempt}, "
+                    f"kind={decision.failure_kind})"
+                ),
+                questions=decision.report,
+                worktree_path=wt_path,
             )
         if not decision.retryable:
             raise RuntimeError(

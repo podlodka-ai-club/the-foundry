@@ -10,9 +10,11 @@ from foundry.models import Stage, Task, TaskStatus
 from foundry.workflows import (
     VerificationDecision,
     WorkflowName,
+    needs_human_input,
     normalize_planner_outcome,
     normalize_verification,
     pr_verify,
+    strip_human_input_marker,
 )
 
 
@@ -93,6 +95,12 @@ def test_normalize_planner_outcome_defaults_unknown_to_plan_ready() -> None:
     # Unknown agent-proposed outcomes must not execute arbitrary branches.
     assert normalize_planner_outcome("launch_nukes") == "plan_ready"
     assert normalize_planner_outcome(None) == "plan_ready"
+
+
+def test_need_verification_marker_must_be_terminal() -> None:
+    assert needs_human_input("Question?\n\nNEED_VERIFICATION") is True
+    assert needs_human_input("NEED_VERIFICATION\nextra") is False
+    assert strip_human_input_marker("Question?\nNEED_VERIFICATION\n") == "Question?"
 
 
 # ----- dev_task retry loop ------------------------------------------------
@@ -214,10 +222,11 @@ def test_dev_task_exhausted_retries_marks_failed(tmp_path: Path) -> None:
 
 
 def test_dev_task_human_blocked_stops_after_one_attempt(tmp_path: Path) -> None:
-    """requires_human=True → no second attempt, task FAILED, no PR."""
+    """requires_human=True → no second attempt, task BLOCKED, no PR."""
     settings = _settings(tmp_path, max_implement_attempts=5)
     state.init_db(settings.db_path)
     seeded = _seed_task(settings.db_path)
+    comments: list[str] = []
 
     ctxs = [
         patch("foundry.pipeline.fetch_stage.fetch", return_value=[seeded]),
@@ -232,6 +241,11 @@ def test_dev_task_human_blocked_stops_after_one_attempt(tmp_path: Path) -> None:
                 "report": "rm -rf /",
             },
         ),
+        patch(
+            "foundry.workflows.issue_comment_stage.run",
+            side_effect=lambda task, settings, body, cwd=None: comments.append(body)
+            or {"issue_number": task.issue_number, "comment": body},
+        ),
         patch("foundry.workflows.pr_stage.run"),
     ]
     _start(ctxs)
@@ -241,12 +255,104 @@ def test_dev_task_human_blocked_stops_after_one_attempt(tmp_path: Path) -> None:
         _stop(ctxs)
 
     final = state.get_task(settings.db_path, processed[0].id)
-    assert final.status == TaskStatus.FAILED
+    assert final.status == TaskStatus.BLOCKED
+    assert final.current_stage == Stage.VERIFY
     assert final.pr_url is None
+    assert "rm -rf /" in comments[0]
 
     events = read_events(settings.db_path, task_id=final.id)
     implement_starts = [e for e in events if e.stage == "implement" and e.kind == "stage_started"]
     assert len(implement_starts) == 1
+
+
+def test_dev_task_unclear_plan_comments_and_blocks(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    state.init_db(settings.db_path)
+    seeded = _seed_task(settings.db_path)
+    comments: list[str] = []
+
+    ctxs = [
+        patch("foundry.pipeline.fetch_stage.fetch", return_value=[seeded]),
+        patch("foundry.workflows.worktree.ensure_base_repo", return_value=tmp_path / "base"),
+        patch(
+            "foundry.workflows.worktree.create_worktree",
+            return_value=(tmp_path / "wt", "foundry/task-1"),
+        ),
+        patch("foundry.workflows.worktree.cleanup_worktree"),
+        patch(
+            "foundry.workflows.agent_plan_stage.run",
+            return_value={
+                "plan": "Please clarify the desired API shape.\nNEED_VERIFICATION",
+                "summary": "needs input",
+            },
+        ),
+        patch(
+            "foundry.workflows.agent_implement_stage.run",
+            side_effect=AssertionError("implement should not run"),
+        ),
+        patch(
+            "foundry.workflows.issue_comment_stage.run",
+            side_effect=lambda task, settings, body, cwd=None: comments.append(body)
+            or {"issue_number": task.issue_number, "comment": body},
+        ),
+        patch(
+            "foundry.workflows.pr_stage.run",
+            side_effect=AssertionError("pr should not run"),
+        ),
+    ]
+    _start(ctxs)
+    try:
+        processed = pipeline.run_once(settings)
+    finally:
+        _stop(ctxs)
+
+    final = state.get_task(settings.db_path, processed[0].id)
+    assert final.status == TaskStatus.BLOCKED
+    assert final.current_stage == Stage.PLAN
+    assert final.pr_url is None
+    assert comments
+    assert "Please clarify the desired API shape." in comments[0]
+    assert "NEED_VERIFICATION" not in comments[0]
+
+
+def test_dev_task_unclear_implement_comments_and_blocks(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    state.init_db(settings.db_path)
+    seeded = _seed_task(settings.db_path)
+    comments: list[str] = []
+
+    ctxs = [
+        patch("foundry.pipeline.fetch_stage.fetch", return_value=[seeded]),
+        *[patch(target, **kwargs) for target, kwargs in _dev_task_patches(tmp_path).items()],
+        patch(
+            "foundry.workflows.agent_implement_stage.run",
+            return_value={
+                "result": "needs input",
+                "response": "Which auth scope should this endpoint use?\nNEED_VERIFICATION",
+            },
+        ),
+        patch(
+            "foundry.workflows.verify_stage.run",
+            side_effect=AssertionError("verify should not run"),
+        ),
+        patch(
+            "foundry.workflows.issue_comment_stage.run",
+            side_effect=lambda task, settings, body, cwd=None: comments.append(body)
+            or {"issue_number": task.issue_number, "comment": body},
+        ),
+    ]
+    _start(ctxs)
+    try:
+        processed = pipeline.run_once(settings)
+    finally:
+        _stop(ctxs)
+
+    final = state.get_task(settings.db_path, processed[0].id)
+    assert final.status == TaskStatus.BLOCKED
+    assert final.current_stage == Stage.IMPLEMENT
+    assert final.pr_url is None
+    assert "Which auth scope should this endpoint use?" in comments[0]
+    assert "NEED_VERIFICATION" not in comments[0]
 
 
 # ----- pr_verify workflow -------------------------------------------------
