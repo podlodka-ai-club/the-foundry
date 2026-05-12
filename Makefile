@@ -1,4 +1,4 @@
-.PHONY: help build up down restart logs clean install test status
+.PHONY: help build up down restart logs clean install test status setup-deepseek setup-anthropic setup-openai setup-llm
 
 # Цвета для вывода
 BLUE := \033[0;34m
@@ -105,6 +105,41 @@ gh-auth: ## Проверить авторизацию GitHub CLI
 
 gh-login: ## Авторизоваться в GitHub CLI
 	gh auth login
+
+setup-deepseek: ## Настроить DeepSeek API ключ для OpenCode
+	@echo "$(GREEN)Настройка DeepSeek API ключа...$(NC)"
+	@mkdir -p ~/.local/share/opencode
+	@read -p "Enter DeepSeek API key: " key; \
+	echo "{\"deepseek\":{\"type\":\"api\",\"key\":\"$$key\"}}" > ~/.local/share/opencode/auth.json
+	@chmod 600 ~/.local/share/opencode/auth.json
+	@echo "$(GREEN)✓ DeepSeek ключ сохранён в ~/.local/share/opencode/auth.json$(NC)"
+
+setup-anthropic: ## Настроить Anthropic API ключ (для Claude CLI)
+	@echo "$(GREEN)Настройка Anthropic API ключа...$(NC)"
+	@read -p "Enter Anthropic API key: " key; \
+	echo "export ANTHROPIC_API_KEY=$$key" >> ~/.bashrc
+	@echo "$(YELLOW)⚠️  Добавьте в .env: ANTHROPIC_API_KEY=$$key$(NC)"
+	@echo "$(GREEN)✓ Или используйте: claude /login$(NC)"
+
+setup-openai: ## Настроить OpenAI API ключ (для Codex CLI)
+	@echo "$(GREEN)Настройка OpenAI API ключа...$(NC)"
+	@read -p "Enter OpenAI API key: " key; \
+	echo "export OPENAI_API_KEY=$$key" >> ~/.bashrc
+	@echo "$(YELLOW)⚠️  Добавьте в .env: OPENAI_API_KEY=$$key$(NC)"
+	@echo "$(GREEN)✓ Или используйте: codex login$(NC)"
+
+setup-llm: ## Интерактивная настройка LLM провайдера
+	@echo "$(GREEN)Выберите LLM провайдера:$(NC)"
+	@echo "  1) DeepSeek (OpenCode)"
+	@echo "  2) Anthropic Claude"
+	@echo "  3) OpenAI Codex"
+	@read -p "Ваш выбор (1-3): " choice; \
+	case $$choice in \
+		1) $(MAKE) setup-deepseek ;; \
+		2) $(MAKE) setup-anthropic ;; \
+		3) $(MAKE) setup-openai ;; \
+		*) echo "$(YELLOW)Неверный выбор$(NC)" ;; \
+	esac
 
 shell-api: ## Войти в shell контейнера API
 	docker-compose exec api bash
