@@ -13,6 +13,7 @@
 - [Что внутри](#что-внутри)
 - [Подготовка окружения](#подготовка-окружения)
 - [Конфигурация (`.env`)](#конфигурация-env)
+- [Makefile команды](#makefile-команды)
 - [Запуск: три раннера](#запуск-три-раннера)
 - [Docker-запуск](#docker-запуск)
 - [Smoke-прогон](#smoke-прогон)
@@ -41,6 +42,8 @@
 ```bash
 brew install uv gh node                  # uv, gh, Node.js
 gh auth login                            # токен с правом `repo`
+# или через Makefile:
+make gh-login
 ```
 
 **Опционально — реальный coding-агент** (если хочешь, чтобы план/имплементацию писала LLM, а не stub):
@@ -64,6 +67,8 @@ claude /login                            # OAuth подписки или ANTHROP
 ```bash
 cp .env.example .env
 $EDITOR .env
+# или через Makefile:
+make setup                               # создаст .env и директории
 ```
 
 Минимальные обязательные поля — `SOURCE_REPO` и `TARGET_REPO`. Без них любая команда `foundry` падает с `config error`.
@@ -165,6 +170,9 @@ cat > ~/.local/share/opencode/auth.json <<'EOF'
   "deepseek": { "type": "api", "key": "sk-..." }
 }
 EOF
+# или через Makefile (интерактивно):
+make setup-deepseek                      # запросит ключ и создаст auth.json
+make setup-llm                           # интерактивный выбор провайдера
 
 # 3. Smoke-проверка — должен ответить без TUI
 opencode run -m deepseek/deepseek-v4-flash "say hi in one word"
@@ -198,6 +206,69 @@ AGENT_IMPLEMENT_MAX_TURNS=40
 
 ---
 
+## Makefile команды
+
+В корне проекта есть `Makefile` с удобными командами для управления проектом. Все команды можно запускать через `make <команда>` (в WSL: `wsl make <команда>`).
+
+**Основные команды:**
+
+```bash
+make help                    # показать все доступные команды
+make setup                   # первоначальная настройка (.env, директории)
+make build                   # собрать Docker образы
+make up                      # запустить все сервисы
+make down                    # остановить все сервисы
+make restart                 # перезапустить сервисы
+make rebuild                 # пересобрать и запустить (down + build + up)
+make logs                    # показать логи всех сервисов
+make status                  # показать статус контейнеров
+```
+
+**Настройка LLM провайдеров:**
+
+```bash
+make setup-llm               # интерактивный выбор провайдера
+make setup-deepseek          # настроить DeepSeek API ключ
+make setup-anthropic         # настроить Anthropic API ключ (Claude)
+make setup-openai            # настроить OpenAI API ключ (Codex)
+```
+
+**Локальная разработка (без Docker):**
+
+```bash
+make install                 # установить зависимости (Python + Node.js)
+make dev-api                 # запустить API локально на :8001
+make dev-worker              # запустить worker локально
+make dev-web                 # запустить frontend локально на :5174
+make test                    # запустить все тесты
+```
+
+**GitHub:**
+
+```bash
+make gh-auth                 # проверить авторизацию GitHub CLI
+make gh-login                # авторизоваться в GitHub CLI
+```
+
+**Отладка:**
+
+```bash
+make logs-api                # логи API
+make logs-worker             # логи worker
+make logs-web                # логи frontend
+make shell-api               # войти в shell контейнера API
+make shell-worker            # войти в shell контейнера worker
+```
+
+**Очистка:**
+
+```bash
+make clean                   # удалить контейнеры, образы и volumes
+make clean-data              # удалить только данные (БД и worktrees)
+```
+
+---
+
 ## Запуск: три раннера
 
 UI и листенер — **разные процессы**, читающие одну и ту же SQLite. Запускай каждый в своём терминале (или в `tmux`/Process Compose).
@@ -209,6 +280,8 @@ uv run foundry run                       # бесконечный polling-реж
 uv run foundry run --once                # одиночный проход и выход
 uv run foundry run --interval 10         # переопределить POLL_INTERVAL_SECONDS
 uv run foundry pr-feedback --once        # один проход по review/CI feedback в открытых PR
+# или через Makefile:
+make dev-worker                          # запустить worker локально
 ```
 
 Каждый проход: `fetch labeled issues → context → plan → implement → verify → pr` для каждой задачи. Результат каждой стадии пишется в `task_events` (SQLite) — UI читает оттуда. Дополнительные команды:
@@ -225,6 +298,8 @@ uv run foundry reset <task_id>           # вернуть задачу в PENDIN
 
 ```bash
 uv run uvicorn api.main:app --reload     # http://localhost:8000
+# или через Makefile:
+make dev-api                             # запустить API локально на :8001
 ```
 
 Эндпоинты: `GET /api/tasks`, `GET /api/tasks/{id}`, `GET /api/tasks/{id}/events` (SSE, поддерживает `Last-Event-ID`), `GET /api/repos`. Health: `GET /`.
@@ -234,6 +309,9 @@ uv run uvicorn api.main:app --reload     # http://localhost:8000
 ```bash
 cd web && npm install                    # один раз
 npm run dev                              # http://localhost:5173
+# или через Makefile:
+make install                             # установить все зависимости (Python + Node.js)
+make dev-web                             # запустить frontend локально
 ```
 
 Vite-прокси перебрасывает `/api` → `http://localhost:8000` — пока порт API не двигаешь, ничего больше править не нужно. Тёмная тема — по умолчанию, светлая включается через системное `prefers-color-scheme` или вручную: `<html data-theme="light">`.
@@ -254,6 +332,12 @@ Docker Compose поднимает сразу три процесса:
 cp .env.example .env
 $EDITOR .env                              # заполнить SOURCE_REPO / TARGET_REPO
 docker compose up --build
+# или через Makefile:
+make setup                                # создать .env и директории
+make build                                # собрать образы
+make up                                   # запустить все сервисы
+# или одной командой:
+make rebuild                              # пересобрать и запустить
 ```
 
 После старта UI доступен на http://localhost:5173, API — на http://localhost:8000. SQLite и worktree'ы остаются на хосте в `./data` и `./worktrees`, чтобы их можно было смотреть обычными локальными инструментами.
@@ -277,6 +361,8 @@ Compose монтирует локальный `gh` auth из `${HOME}/.config/gh
 INSTALL_CLAUDE_CLI=true docker compose build api worker
 INSTALL_CODEX_CLI=true docker compose build api worker
 INSTALL_OPENCODE_CLI=true docker compose build api worker
+# или через Makefile (после установки флага в .env):
+make build                                # соберёт с учётом INSTALL_*_CLI из .env
 ```
 
 Для постоянного режима можно положить нужный флаг в `.env`, чтобы `docker compose up --build` тоже собирал образ с этим CLI. Если CLI уже лежит в собственном кастомном образе или используется только `CODING_AGENT=stub`, эти флаги не нужны.
@@ -304,6 +390,8 @@ scripts/add-and-process.sh
 ```bash
 uv run pytest                            # 193 tests, оффлайн
 uv run pytest tests/test_pipeline.py -v
+# или через Makefile:
+make test                                # запустить все тесты (Python + TypeScript + build)
 ```
 
 Все внешние вызовы (`gh`, git, claude CLI) замоканы — тесты не ходят в сеть и не плодят worktree'ы.
